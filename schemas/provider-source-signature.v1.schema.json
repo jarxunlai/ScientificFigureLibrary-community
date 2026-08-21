@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/provider-source-signature.v1.schema.json",
+  "title": "Scientific Figure Library Provider detached signature v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "algorithm", "keyId", "manifestSha256", "signatureBase64"],
+  "properties": {
+    "schema": { "const": "figure-library.provider-source-signature.v1" },
+    "algorithm": { "const": "Ed25519" },
+    "keyId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "manifestSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "signatureBase64": { "type": "string", "minLength": 86, "maxLength": 88 }
+  }
+}

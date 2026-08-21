@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/remote-payload.v1.schema.json",
+  "title": "Pinned remote payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["url", "bytes", "sha256", "mediaType"],
+  "properties": {
+    "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "bytes": { "type": "integer", "minimum": 1, "maximum": 67108864 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "mediaType": { "type": "string", "minLength": 1, "maxLength": 200 }
+  }
+}

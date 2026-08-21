@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/public-template-entry.v1.schema.json",
+  "title": "Scientific Figure Library public template entry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "providerId", "templateId", "releaseVersion", "contentDigest", "title", "description", "search", "archive", "preview", "status", "licenses"],
+  "properties": {
+    "schema": { "const": "figure-library.public-template-entry.v1" },
+    "providerId": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "templateId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,126}[a-z0-9]$" },
+    "releaseVersion": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$" },
+    "contentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "dataProfile", "plotFamily", "language", "tags", "packages", "codeFiles", "inputFiles"],
+      "properties": {
+        "application": { "type": "string", "maxLength": 4000 },
+        "dataProfile": { "type": "string", "maxLength": 4000 },
+        "plotFamily": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "language": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "tags": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "packages": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "codeFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
+        "inputFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } }
+      }
+    },
+    "archive": { "$ref": "public-template-archive-identity.v1.schema.json" },
+    "preview": { "$ref": "public-preview-identity.v1.schema.json" },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upstreamStatus", "publisherVerified", "curationStatus", "renderValidation"],
+      "properties": {
+        "upstreamStatus": { "const": "published" },
+        "publisherVerified": { "type": "boolean" },
+        "curationStatus": { "enum": ["curated", "unreviewed"] },
+        "renderValidation": { "enum": ["ci_rendered", "publisher_attested", "unverified"] }
+      }
+    },
+    "licenses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "content", "documentation"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "documentation": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "provenance": { "type": "array", "items": { "type": "object" } }
+  }
+}

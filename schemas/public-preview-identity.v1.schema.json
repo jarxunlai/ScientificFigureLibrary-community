@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/public-preview-identity.v1.schema.json",
+  "title": "Public template preview identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["path", "bytes", "sha256", "mediaType", "width", "height", "canonicalRgbaSha256"],
+  "properties": {
+    "path": { "type": "string", "pattern": "^thumbs/[a-z0-9._-]+/[0-9A-Za-z.-]+\\.png$" },
+    "bytes": { "type": "integer", "minimum": 1, "maximum": 67108864 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "mediaType": { "const": "image/png" },
+    "width": { "type": "integer", "minimum": 1, "maximum": 16384 },
+    "height": { "type": "integer", "minimum": 1, "maximum": 16384 },
+    "canonicalRgbaSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

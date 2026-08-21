@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/provider-source-manifest.v1.schema.json",
+  "title": "Scientific Figure Library signed Provider source manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "providerId", "sequence", "generatedAt", "catalog", "previews", "authorizedNextKeys", "tombstones"],
+  "properties": {
+    "schema": { "const": "figure-library.provider-source-manifest.v1" },
+    "providerId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,126}[a-z0-9]$" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "catalog": { "$ref": "remote-payload.v1.schema.json" },
+    "previews": { "$ref": "remote-payload.v1.schema.json" },
+    "authorizedNextKeys": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "publicKeyBase64"],
+        "properties": {
+          "keyId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "publicKeyBase64": { "type": "string", "minLength": 43, "maxLength": 44 }
+        }
+      }
+    },
+    "tombstones": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 200 } }
+  }
+}
