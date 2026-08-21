@@ -26,7 +26,25 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           persist-credentials: false
+      - name: Checkout fixed central Archives main with full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: jarxunlai/ScientificFigureLibrary-community-archives
+          ref: main
+          fetch-depth: 0
+          path: archives
+          persist-credentials: false
       - name: Enforce one-release catalog policy
         run: node trusted/scripts/validate-pr-trees.mjs trusted candidate
       - name: Validate candidate catalog
-        run: node trusted/scripts/validate-repository.mjs candidate
+        run: node trusted/scripts/validate-repository.mjs trusted candidate archives
+      - name: Validate the complete candidate snapshot
+        run: node trusted/scripts/validate-full-repository.mjs candidate
+      - name: Run trusted validator regression tests
+        run: node --test trusted/tests/*.test.mjs
+      - name: Record the exact Archives trust observation
+        if: always()
+        shell: bash
+        run: |
+          archives_head="$(git -C archives rev-parse HEAD)"
+          printf '### Catalog validation trust observation\n\n- Archives main observed at `%s`\n' "$archives_head" >> "$GITHUB_STEP_SUMMARY"
