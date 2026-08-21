@@ -8,7 +8,13 @@ const providerId = "io.github.jarxunlai.scientific-figure-community";
 const hash = /^[a-f0-9]{64}$/u;
 const commit = /^[a-f0-9]{40}$/u;
 const templateId = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$/u;
-const semver = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u;
+const semverIdentifier = "(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)";
+const semver = new RegExp(
+  `^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)` +
+    `(?:-${semverIdentifier}(?:\\.${semverIdentifier})*)?` +
+    "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+  "u",
+);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
