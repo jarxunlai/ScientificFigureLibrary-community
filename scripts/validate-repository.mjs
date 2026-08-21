@@ -45,6 +45,11 @@ for (const entry of catalog.entries) {
   assert(hash.test(entry.preview.sha256), `invalid preview sha256: ${entry.templateId}`);
   assert(hash.test(entry.preview.canonicalRgbaSha256), `invalid RGBA digest: ${entry.templateId}`);
   assert(entry.status?.upstreamStatus === "published", `invalid upstream status: ${entry.templateId}`);
+  assert(typeof entry.status.publisherVerified === "boolean", `invalid publisher verification status: ${entry.templateId}`);
+  assert(["curated", "unreviewed"].includes(entry.status.curationStatus), `invalid curation status: ${entry.templateId}`);
+  assert(["ci_rendered", "publisher_attested", "unverified"].includes(entry.status.renderValidation), `invalid render validation status: ${entry.templateId}`);
+  assert(entry.status.localReviewStatus === "not_reviewed", `central entry must not claim recipient local review: ${entry.templateId}`);
+  assert(entry.status.plotExecutionByRecipient === "not_run", `central entry must not claim recipient plot execution: ${entry.templateId}`);
   const identity = `${entry.templateId}@${entry.releaseVersion}`;
   assert(!identities.has(identity), `duplicate release identity: ${identity}`);
   assert(identity.localeCompare(priorIdentity, "en") > 0, `catalog entries are not canonically ordered at ${identity}`);

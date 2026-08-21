@@ -33,12 +33,14 @@
     "status": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["upstreamStatus", "publisherVerified", "curationStatus", "renderValidation"],
+      "required": ["upstreamStatus", "publisherVerified", "curationStatus", "renderValidation", "localReviewStatus", "plotExecutionByRecipient"],
       "properties": {
         "upstreamStatus": { "const": "published" },
         "publisherVerified": { "type": "boolean" },
         "curationStatus": { "enum": ["curated", "unreviewed"] },
-        "renderValidation": { "enum": ["ci_rendered", "publisher_attested", "unverified"] }
+        "renderValidation": { "enum": ["ci_rendered", "publisher_attested", "unverified"] },
+        "localReviewStatus": { "const": "not_reviewed" },
+        "plotExecutionByRecipient": { "const": "not_run" }
       }
     },
     "licenses": {
