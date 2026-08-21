@@ -33,9 +33,9 @@ const added = [...candidate.keys()].filter((name) => !base.has(name)).sort();
 const deleted = [...base.keys()].filter((name) => !candidate.has(name)).sort();
 const modified = [...base.keys()].filter((name) => candidate.has(name) && base.get(name) !== candidate.get(name)).sort();
 if (deleted.length) throw new Error(`Catalog PR may not delete files: ${deleted.join(", ")}`);
-const entry = added.filter((name) => /^catalog\/entries\/[a-z0-9._-]+\/[0-9A-Za-z.-]+\.json$/u.test(name));
-const thumb = added.filter((name) => /^thumbs\/[a-z0-9._-]+\/[0-9A-Za-z.-]+\.png$/u.test(name));
-const review = added.filter((name) => /^reviews\/[a-z0-9._-]+\/[0-9A-Za-z.-]+\.md$/u.test(name));
+const entry = added.filter((name) => /^catalog\/entries\/[a-z0-9._-]+\/[0-9A-Za-z.+-]+\.json$/u.test(name));
+const thumb = added.filter((name) => /^thumbs\/[a-z0-9._-]+\/[0-9A-Za-z.+-]+\.png$/u.test(name));
+const review = added.filter((name) => /^reviews\/[a-z0-9._-]+\/[0-9A-Za-z.+-]+\.md$/u.test(name));
 if (entry.length !== 1 || thumb.length !== 1 || review.length !== 1 || added.length !== 3) {
   throw new Error(`Catalog PR must add one entry, one thumbnail, and one review only; added=${added.join(", ")}`);
 }

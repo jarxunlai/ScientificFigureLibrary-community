@@ -23,4 +23,9 @@ for (const value of ["1.0.0", "0.0.0-alpha.1", "2.3.4-rc.1+build.9", "1.0.0+buil
 for (const value of ["01.0.0", "1.0", "1.0.0-01", "1.0.0-alpha..1", "1.0.0+"]) {
   assert.equal(releaseVersion.test(value), false, `expected strict SemVer rejection: ${value}`);
 }
+const mitLicense = await fs.readFile(path.join(root, "LICENSES", "MIT.txt"), "utf8");
+const ccByLicense = await fs.readFile(path.join(root, "LICENSES", "CC-BY-4.0.txt"), "utf8");
+assert.match(mitLicense, /^MIT License/u);
+assert.match(ccByLicense, /Creative Commons Attribution 4\.0 International Public License/u);
+assert.ok(ccByLicense.length > 10_000);
 console.log("validated six-field public status and strict SemVer policy");

@@ -20,7 +20,9 @@ The central catalog is not fetched at SFL startup. A reviewed catalog snapshot, 
 ## Licenses
 
 - Repository tooling and schemas: [MIT](LICENSE)
-- Documentation unless stated otherwise: [CC BY 4.0](LICENSES/CC-BY-4.0.txt)
+- Vendored public-template code license: [MIT](LICENSES/MIT.txt)
+- Synthetic data, generated previews/thumbnails, and documentation unless
+  stated otherwise: [CC BY 4.0](LICENSES/CC-BY-4.0.txt)
 - Each submitted template declares its own code and content licenses; a catalog entry never overrides an archive's declarations.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).

@@ -15,6 +15,7 @@ const semver = new RegExp(
     "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
   "u",
 );
+const privatePath = /(?:\b[A-Za-z]:[\\/]|\\\\[^\\\s]+\\[^\\\s]+|(?:^|[\s"'`(=])\/(?:Users|home|mnt\/[A-Za-z]|private|var\/folders|tmp|etc|opt|root|srv|Volumes|workspace|data)\/)/mu;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -26,6 +27,11 @@ function canonical(value) {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function assertPublicText(value, label) {
+  assert(typeof value === "string" && value.trim(), `${label} must be non-empty text`);
+  assert(!privatePath.test(value), `${label} contains an absolute/private machine path`);
 }
 
 const catalogPath = path.join(root, "catalog", "catalog.json");
@@ -43,6 +49,11 @@ for (const entry of catalog.entries) {
   assert(templateId.test(entry.templateId), `invalid templateId: ${entry.templateId}`);
   assert(semver.test(entry.releaseVersion), `invalid releaseVersion: ${entry.releaseVersion}`);
   assert(hash.test(entry.contentDigest), `invalid contentDigest: ${entry.templateId}`);
+  assertPublicText(entry.title, `title: ${entry.templateId}`);
+  assertPublicText(entry.description, `description: ${entry.templateId}`);
+  assertPublicText(entry.search?.application, `search.application: ${entry.templateId}`);
+  assertPublicText(entry.search?.dataProfile, `search.dataProfile: ${entry.templateId}`);
+  assert(!privatePath.test(canonical(entry.provenance ?? [])), `provenance contains an absolute/private machine path: ${entry.templateId}`);
   assert(entry.archive?.repository === "jarxunlai/ScientificFigureLibrary-community-archives", "archive repository mismatch");
   assert(commit.test(entry.archive.commit), `invalid archive commit: ${entry.templateId}`);
   assert(hash.test(entry.archive.sha256), `invalid archive sha256: ${entry.templateId}`);
@@ -56,6 +67,9 @@ for (const entry of catalog.entries) {
   assert(["ci_rendered", "publisher_attested", "unverified"].includes(entry.status.renderValidation), `invalid render validation status: ${entry.templateId}`);
   assert(entry.status.localReviewStatus === "not_reviewed", `central entry must not claim recipient local review: ${entry.templateId}`);
   assert(entry.status.plotExecutionByRecipient === "not_run", `central entry must not claim recipient plot execution: ${entry.templateId}`);
+  assert(entry.licenses?.code === "MIT", `public code license must be MIT: ${entry.templateId}`);
+  assert(entry.licenses?.content === "CC-BY-4.0", `public content license must be CC-BY-4.0: ${entry.templateId}`);
+  assert(entry.licenses?.documentation === "CC-BY-4.0", `public documentation license must be CC-BY-4.0: ${entry.templateId}`);
   const identity = `${entry.templateId}@${entry.releaseVersion}`;
   assert(!identities.has(identity), `duplicate release identity: ${identity}`);
   assert(identity.localeCompare(priorIdentity, "en") > 0, `catalog entries are not canonically ordered at ${identity}`);
@@ -83,5 +97,13 @@ assert(manifest.providerId === providerId, "preview manifest provider mismatch")
 assert(Array.isArray(manifest.entries), "preview manifest entries must be an array");
 assert(manifest.entries.length === catalog.entries.length, "preview manifest and catalog entry counts differ");
 assert(canonical(manifest.entries) === canonical(previews), "preview manifest entries disagree with catalog previews");
+
+const mitLicense = await fs.readFile(path.join(root, "LICENSES", "MIT.txt"), "utf8");
+const ccByLicense = await fs.readFile(path.join(root, "LICENSES", "CC-BY-4.0.txt"), "utf8");
+assert(mitLicense.includes("MIT License") && mitLicense.length > 500, "LICENSES/MIT.txt is not the complete MIT license notice");
+assert(
+  ccByLicense.includes("Creative Commons Attribution 4.0 International Public License") && ccByLicense.length > 10_000,
+  "LICENSES/CC-BY-4.0.txt is not the complete CC BY 4.0 legal code",
+);
 
 console.log(`validated ${catalog.entries.length} public catalog entries`);
