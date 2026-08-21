@@ -1,5 +1,1 @@
-{
-  "schema": "figure-library.public-preview-manifest.v1",
-  "providerId": "io.github.jarxunlai.scientific-figure-community",
-  "entries": []
-}
+{"entries":[{"bytes":540780,"canonicalRgbaSha256":"93515e6bc32e297e01515dd4584b95d259595cfaec8bb39826e82a325b4cfb6f","height":600,"mediaType":"image/png","path":"thumbs/single-cell-enrichment-bar-pathway-genes/1.0.0.png","releaseVersion":"1.0.0","sha256":"93e6d36b8ad5ab10b4e2fbb65612d9d85a09bc56e3476f69fcf4267a8c0dc84a","templateId":"single-cell-enrichment-bar-pathway-genes","width":900}],"providerId":"io.github.jarxunlai.scientific-figure-community","schema":"figure-library.public-preview-manifest.v1"}
