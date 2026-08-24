@@ -30,6 +30,20 @@ Text provenance may cite a DOI or public URL and may state that a design was ins
 
 Public identity is `providerId + templateId + semantic releaseVersion`. A merged version is immutable. Any byte change to code, data, preview, or metadata requires a new semantic version and content digest.
 
+## One-time restricted withdrawal
+
+The append-only rule above remains the normal and permanent publication path. The only deletion exception is a maintainer-reviewed, atomic withdrawal of all three exact `1.0.0` seed identities listed in the repository policy. The validator binds every deleted standalone entry, review, and thumbnail, plus the two modified aggregate files, to the expected base Git blob OID. It accepts no additional path and no partial subset.
+
+A withdrawal candidate must:
+
+- remove all three exact entry/review/thumbnail triplets in one commit;
+- remove the same identities from `catalog/catalog.json` and `catalog/preview-manifest.json`;
+- preserve the Provider identity and leave a canonical zero-entry repository inventory;
+- advance the Catalog `generatedAt` timestamp;
+- leave every workflow, schema, policy, license, documentation, and unrelated release byte unchanged.
+
+This exception does not authorize general deletion, overwrite an immutable identity, or rewrite repository history. Any future withdrawal policy requires a new, separately reviewed maintainer policy change.
+
 ## Allowed Catalog PR paths
 
 A normal Catalog PR may add only:

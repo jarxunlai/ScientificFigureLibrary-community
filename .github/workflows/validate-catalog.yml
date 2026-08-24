@@ -34,10 +34,16 @@ jobs:
           fetch-depth: 0
           path: archives
           persist-credentials: false
-      - name: Enforce one-release catalog policy
-        run: node trusted/scripts/validate-pr-trees.mjs trusted candidate
-      - name: Validate candidate catalog
+      - name: Enforce one-release or exact withdrawal tree policy
+        id: policy
+        shell: bash
+        run: node trusted/scripts/validate-pr-trees.mjs trusted candidate --github-output "$GITHUB_OUTPUT"
+      - name: Validate candidate catalog addition
+        if: steps.policy.outputs.mode == 'add'
         run: node trusted/scripts/validate-repository.mjs trusted candidate archives
+      - name: Validate exact restricted seed withdrawal
+        if: steps.policy.outputs.mode == 'withdrawal'
+        run: node trusted/scripts/validate-withdrawal.mjs trusted candidate
       - name: Validate the complete candidate snapshot
         run: node trusted/scripts/validate-full-repository.mjs candidate
       - name: Run trusted validator regression tests

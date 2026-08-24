@@ -7,16 +7,16 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deflateSync } from "node:zlib";
-import { validateFullRepository, validatePublicationCandidate, decodeCanonicalPng } from "../scripts/catalog-validation-lib.mjs";
-import { assertPortableTreeRecords, compareTreeMaps } from "../scripts/validate-pr-trees.mjs";
+import { validateFullRepository, validatePublicationCandidate, validateRestrictedSeedWithdrawalContent, decodeCanonicalPng } from "../scripts/catalog-validation-lib.mjs";
+import { assertPortableTreeRecords, compareTreeMaps, RESTRICTED_SEED_WITHDRAWAL } from "../scripts/validate-pr-trees.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const providerId = "io.github.jarxunlai.scientific-figure-community";
 const archiveRepository = "jarxunlai/ScientificFigureLibrary-community-archives";
-const seedIds = [
-  "single-cell-enrichment-bar-pathway-genes",
-  "ggsankeyfier-layout-color-combo",
-  "umap-unchull-main-type-circles",
+const publicationFixtureIds = [
+  "example-template-one",
+  "example-template-two",
+  "example-template-three",
 ];
 const seedRoot = path.join(root, "seed-staging");
 
@@ -216,7 +216,7 @@ async function entryFixture(templateId, archive, previewBytes, seedDirectory) {
   };
 }
 
-async function createFixture(seedId = seedIds[0]) {
+async function createFixture(seedId = publicationFixtureIds[0]) {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "sfl-catalog-policy-test-"));
   const base = path.join(temp, "base");
   const candidate = path.join(temp, "candidate");
@@ -252,13 +252,231 @@ async function createFixture(seedId = seedIds[0]) {
   return { temp, baseRoot: base, candidateRoot: candidate, archivesRoot: archives, candidate, entry, preview };
 }
 
+async function createSyntheticRestrictedWithdrawalFixture() {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "sfl-restricted-withdrawal-content-test-"));
+  const base = path.join(temp, "base");
+  const candidate = path.join(temp, "candidate");
+  await initRepository(base);
+  await write(base, "catalog/entries/.gitkeep", "");
+  await write(base, "thumbs/.gitkeep", "");
+  await write(base, "reviews/.gitkeep", "");
+  await write(base, "LICENSES/MIT.txt", await fs.readFile(path.join(root, "LICENSES", "MIT.txt")));
+  await write(base, "LICENSES/CC-BY-4.0.txt", await fs.readFile(path.join(root, "LICENSES", "CC-BY-4.0.txt")));
+  const entries = [];
+  for (const release of RESTRICTED_SEED_WITHDRAWAL.releases) {
+    const preview = createFixturePng();
+    const archive = {
+      repository: archiveRepository,
+      commit: "a".repeat(40),
+      path: `archives/${release.templateId}/${release.releaseVersion}/${release.templateId}-${release.releaseVersion}.zip`,
+      bytes: 1,
+      sha256: "b".repeat(64),
+    };
+    const entry = await entryFixture(release.templateId, archive, preview);
+    entries.push(entry);
+    await writeCanonical(base, release.entryPath, entry);
+    await write(base, release.thumbPath, preview);
+    await write(base, release.reviewPath, review(entry));
+  }
+  await writeCanonical(base, "catalog/catalog.json", catalog(entries, "2026-08-21T00:00:00Z"));
+  await writeCanonical(base, "catalog/preview-manifest.json", manifest(entries));
+  await commitAll(base, "synthetic withdrawal base");
+  await fs.cp(base, candidate, { recursive: true, filter: (source) => path.basename(source) !== ".git" });
+  await initRepository(candidate);
+  await commitAll(candidate, "synthetic withdrawal candidate base");
+  for (const release of RESTRICTED_SEED_WITHDRAWAL.releases) {
+    await fs.rm(path.join(candidate, ...release.entryPath.split("/")));
+    await fs.rm(path.join(candidate, ...release.reviewPath.split("/")));
+    await fs.rm(path.join(candidate, ...release.thumbPath.split("/")));
+  }
+  await writeCanonical(candidate, "catalog/catalog.json", catalog([], "2026-08-24T00:00:00Z"));
+  await writeCanonical(candidate, "catalog/preview-manifest.json", manifest([]));
+  await commitAll(candidate, "synthetic withdrawal");
+  return { temp, baseRoot: base, candidateRoot: candidate, candidate };
+}
+
+async function withSyntheticRestrictedWithdrawalFixture(callback) {
+  const fixture = await createSyntheticRestrictedWithdrawalFixture();
+  try {
+    return await callback(fixture);
+  } finally {
+    await fs.rm(fixture.temp, { recursive: true, force: true });
+  }
+}
+function restrictedWithdrawalTreeFixture() {
+  const unchanged = { path: "README.md", mode: "100644", type: "blob", oid: "c".repeat(40) };
+  const base = new Map([[unchanged.path, unchanged]]);
+  for (const [treePath, oid] of Object.entries(RESTRICTED_SEED_WITHDRAWAL.baseOids)) {
+    base.set(treePath, { path: treePath, mode: "100644", type: "blob", oid });
+  }
+  const candidate = new Map([[unchanged.path, unchanged]]);
+  RESTRICTED_SEED_WITHDRAWAL.modifiedPaths.forEach((treePath, index) => {
+    candidate.set(treePath, {
+      path: treePath,
+      mode: "100644",
+      type: "blob",
+      oid: String(index + 1).repeat(40),
+    });
+  });
+  return { base, candidate };
+}
 async function mutateAndCommit(fixture, mutate) {
   await mutate(fixture);
   await commitAll(fixture.candidate, "negative mutation");
 }
 
-test("all three approved clean-room seed identities form valid trusted Catalog candidates", async () => {
-  for (const seedId of seedIds) {
+test("restricted withdrawal tree atomically removes only the three exact current seed releases", () => {
+  const fixture = restrictedWithdrawalTreeFixture();
+  const result = compareTreeMaps(fixture.base, fixture.candidate);
+  assert.equal(result.mode, "withdrawal");
+  assert.deepEqual(result.identities, RESTRICTED_SEED_WITHDRAWAL.releases.map(
+    (release) => `${release.templateId}@${release.releaseVersion}`,
+  ));
+});
+
+test("restricted withdrawal content validator accepts a synthetic exact-three to zero snapshot", async () => {
+  await withSyntheticRestrictedWithdrawalFixture(async (fixture) => {
+    const result = await validateRestrictedSeedWithdrawalContent(fixture);
+    assert.deepEqual(result, {
+      entries: 0,
+      identities: RESTRICTED_SEED_WITHDRAWAL.releases.map(
+        (release) => `${release.templateId}@${release.releaseVersion}`,
+      ),
+    });
+  });
+});
+test("normal one-release add tree gate remains unchanged", async () => {
+  const fixture = await createFixture();
+  try {
+    const result = await validatePublicationCandidate(fixture);
+    assert.equal(result.mode, "add");
+    assert.equal(result.templateId, fixture.entry.templateId);
+  } finally {
+    await fs.rm(fixture.temp, { recursive: true, force: true });
+  }
+});
+
+test("tree policy CLI emits exact add mode for CI routing", async () => {
+  const addFixture = await createFixture();
+  try {
+    const addOutput = path.join(addFixture.temp, "add-output.txt");
+    const addResult = spawnSync(
+      process.execPath,
+      [path.join(root, "scripts", "validate-pr-trees.mjs"), addFixture.baseRoot, addFixture.candidateRoot, "--github-output", addOutput],
+      { encoding: "utf8", windowsHide: true },
+    );
+    assert.equal(addResult.status, 0, addResult.stderr);
+    assert.equal(await fs.readFile(addOutput, "utf8"), "mode=add\n");
+  } finally {
+    await fs.rm(addFixture.temp, { recursive: true, force: true });
+  }
+});
+const restrictedWithdrawalContentNegativeCases = [
+  ["Provider drift", async (fixture) => {
+    const value = JSON.parse(await fs.readFile(path.join(fixture.candidateRoot, "catalog", "catalog.json"), "utf8"));
+    value.provider.displayName = "Changed Provider";
+    await writeCanonical(fixture.candidateRoot, "catalog/catalog.json", value);
+  }],
+  ["non-empty aggregate Catalog", async (fixture) => {
+    await fs.copyFile(
+      path.join(fixture.baseRoot, "catalog", "catalog.json"),
+      path.join(fixture.candidateRoot, "catalog", "catalog.json"),
+    );
+  }],
+  ["non-empty preview manifest", async (fixture) => {
+    await fs.copyFile(
+      path.join(fixture.baseRoot, "catalog", "preview-manifest.json"),
+      path.join(fixture.candidateRoot, "catalog", "preview-manifest.json"),
+    );
+  }],
+  ["non-advancing generatedAt", async (fixture) => {
+    const base = JSON.parse(await fs.readFile(path.join(fixture.baseRoot, "catalog", "catalog.json"), "utf8"));
+    const candidate = JSON.parse(await fs.readFile(path.join(fixture.candidateRoot, "catalog", "catalog.json"), "utf8"));
+    candidate.generatedAt = base.generatedAt;
+    await writeCanonical(fixture.candidateRoot, "catalog/catalog.json", candidate);
+  }],
+];
+
+for (const [name, mutate] of restrictedWithdrawalContentNegativeCases) {
+  test(`restricted withdrawal content rejects ${name}`, async () => {
+    await withSyntheticRestrictedWithdrawalFixture(async (fixture) => {
+      await mutate(fixture);
+      await assert.rejects(() => validateRestrictedSeedWithdrawalContent(fixture));
+    });
+  });
+}
+const restrictedWithdrawalTreeNegativeCases = [
+  ["partial withdrawal", ({ base, candidate }) => {
+    const treePath = RESTRICTED_SEED_WITHDRAWAL.deletedPaths[0];
+    candidate.set(treePath, base.get(treePath));
+  }],
+  ["unrelated deletion", ({ base }) => {
+    base.set("unrelated.txt", { path: "unrelated.txt", mode: "100644", type: "blob", oid: "d".repeat(40) });
+  }],
+  ["unrelated addition", ({ candidate }) => {
+    candidate.set("unexpected.txt", { path: "unexpected.txt", mode: "100644", type: "blob", oid: "d".repeat(40) });
+  }],
+  ["unrelated modification", ({ base, candidate }) => {
+    base.set("README.md", { path: "README.md", mode: "100644", type: "blob", oid: "d".repeat(40) });
+    candidate.set("README.md", { path: "README.md", mode: "100644", type: "blob", oid: "e".repeat(40) });
+  }],
+  ["workflow drift", ({ base, candidate }) => {
+    const treePath = ".github/workflows/validate-catalog.yml";
+    base.set(treePath, { path: treePath, mode: "100644", type: "blob", oid: "d".repeat(40) });
+    candidate.set(treePath, { path: treePath, mode: "100644", type: "blob", oid: "e".repeat(40) });
+  }],
+  ["schema drift", ({ base, candidate }) => {
+    const treePath = "schemas/public-template-entry.v1.schema.json";
+    base.set(treePath, { path: treePath, mode: "100644", type: "blob", oid: "d".repeat(40) });
+    candidate.set(treePath, { path: treePath, mode: "100644", type: "blob", oid: "e".repeat(40) });
+  }],
+  ["non-empty aggregate Catalog", ({ base, candidate }) => {
+    const treePath = "catalog/catalog.json";
+    candidate.set(treePath, base.get(treePath));
+  }],
+  ["non-empty preview manifest", ({ base, candidate }) => {
+    const treePath = "catalog/preview-manifest.json";
+    candidate.set(treePath, base.get(treePath));
+  }],
+];
+
+for (const [name, mutate] of restrictedWithdrawalTreeNegativeCases) {
+  test(`restricted withdrawal tree rejects ${name}`, () => {
+    const fixture = restrictedWithdrawalTreeFixture();
+    mutate(fixture);
+    assert.throws(() => compareTreeMaps(fixture.base, fixture.candidate));
+  });
+}
+
+test("restricted withdrawal is bound to exact release blob identities", () => {
+  const fixture = restrictedWithdrawalTreeFixture();
+  const treePath = RESTRICTED_SEED_WITHDRAWAL.releases[0].entryPath;
+  fixture.base.set(treePath, {
+    path: treePath,
+    mode: "100644",
+    type: "blob",
+    oid: "f".repeat(40),
+  });
+  assert.throws(
+    () => compareTreeMaps(fixture.base, fixture.candidate),
+    /base identity changed/u,
+  );
+});
+test("withdrawn exact identities cannot be republished through the normal add gate", async () => {
+  for (const release of RESTRICTED_SEED_WITHDRAWAL.releases) {
+    const fixture = await createFixture(release.templateId);
+    try {
+      await assert.rejects(
+        () => validatePublicationCandidate(fixture),
+        /restricted seed withdrawal/u,
+      );
+    } finally {
+      await fs.rm(fixture.temp, { recursive: true, force: true });
+    }
+  }
+});
+test("normal immutable one-release additions remain valid for unrelated identities", async () => {
+  for (const seedId of publicationFixtureIds) {
     const fixture = await createFixture(seedId);
     try {
       const result = await validatePublicationCandidate(fixture);

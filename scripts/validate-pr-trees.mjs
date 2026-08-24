@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +8,53 @@ const ENTRY_PATH = /^catalog\/entries\/([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)
 const THUMB_PATH = /^thumbs\/([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)\/([0-9A-Za-z.+-]+)\.png$/u;
 const REVIEW_PATH = /^reviews\/([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)\/([0-9A-Za-z.+-]+)\.md$/u;
 const ALLOWED_MODIFIED = ["catalog/catalog.json", "catalog/preview-manifest.json"];
+
+const RESTRICTED_RELEASES = Object.freeze([
+  Object.freeze({
+    templateId: "ggsankeyfier-layout-color-combo",
+    releaseVersion: "1.0.0",
+    entryPath: "catalog/entries/ggsankeyfier-layout-color-combo/1.0.0.json",
+    thumbPath: "thumbs/ggsankeyfier-layout-color-combo/1.0.0.png",
+    reviewPath: "reviews/ggsankeyfier-layout-color-combo/1.0.0.md",
+  }),
+  Object.freeze({
+    templateId: "single-cell-enrichment-bar-pathway-genes",
+    releaseVersion: "1.0.0",
+    entryPath: "catalog/entries/single-cell-enrichment-bar-pathway-genes/1.0.0.json",
+    thumbPath: "thumbs/single-cell-enrichment-bar-pathway-genes/1.0.0.png",
+    reviewPath: "reviews/single-cell-enrichment-bar-pathway-genes/1.0.0.md",
+  }),
+  Object.freeze({
+    templateId: "umap-unchull-main-type-circles",
+    releaseVersion: "1.0.0",
+    entryPath: "catalog/entries/umap-unchull-main-type-circles/1.0.0.json",
+    thumbPath: "thumbs/umap-unchull-main-type-circles/1.0.0.png",
+    reviewPath: "reviews/umap-unchull-main-type-circles/1.0.0.md",
+  }),
+]);
+
+export const RESTRICTED_SEED_WITHDRAWAL = Object.freeze({
+  releases: RESTRICTED_RELEASES,
+  deletedPaths: Object.freeze(RESTRICTED_RELEASES.flatMap((release) => [
+    release.entryPath,
+    release.reviewPath,
+    release.thumbPath,
+  ]).sort()),
+  modifiedPaths: Object.freeze([...ALLOWED_MODIFIED]),
+  baseOids: Object.freeze({
+    "catalog/catalog.json": "d8cf0eff8c09b734992d402b6ba81d40a73476ab",
+    "catalog/preview-manifest.json": "d40c6e9eb378a0293b0413a30e840e5b7f436bdb",
+    "catalog/entries/ggsankeyfier-layout-color-combo/1.0.0.json": "90cbec8f28597de656114531e30bfa70ed01c893",
+    "catalog/entries/single-cell-enrichment-bar-pathway-genes/1.0.0.json": "e738295c9ba3af4cbe049a997b385e3802dd5279",
+    "catalog/entries/umap-unchull-main-type-circles/1.0.0.json": "215a3cd4be0226fb3f024f43ddd156c5a24c8a74",
+    "reviews/ggsankeyfier-layout-color-combo/1.0.0.md": "5aa67cf44c7798320a91cdea5510657baf3ed9d0",
+    "reviews/single-cell-enrichment-bar-pathway-genes/1.0.0.md": "48ab70e52ca5f3b375331d83b124066156ab1be5",
+    "reviews/umap-unchull-main-type-circles/1.0.0.md": "aa295a448091781cf2f00b3397120a3005e46419",
+    "thumbs/ggsankeyfier-layout-color-combo/1.0.0.png": "e1690b0f35f1ad247b74e08d0cf909797bed61ca",
+    "thumbs/single-cell-enrichment-bar-pathway-genes/1.0.0.png": "98c33839d8e86c622c2cad78a77f6c085410bb0f",
+    "thumbs/umap-unchull-main-type-circles/1.0.0.png": "435b955c3e34267e07258e5af9896642de8807d8",
+  }),
+});
 
 function fail(message) {
   throw new Error(message);
@@ -106,6 +154,45 @@ export function compareTreeMaps(base, candidate) {
     const prior = base.get(name);
     return prior.mode !== next.mode || prior.type !== next.type || prior.oid !== next.oid;
   }).sort();
+  const exactWithdrawalPaths =
+    added.length === 0 &&
+    deleted.length === RESTRICTED_SEED_WITHDRAWAL.deletedPaths.length &&
+    deleted.every((name, index) => name === RESTRICTED_SEED_WITHDRAWAL.deletedPaths[index]) &&
+    modified.length === RESTRICTED_SEED_WITHDRAWAL.modifiedPaths.length &&
+    modified.every((name, index) => name === RESTRICTED_SEED_WITHDRAWAL.modifiedPaths[index]);
+  const touchesRestrictedWithdrawal = [...added, ...deleted, ...modified].some(
+    (name) => RESTRICTED_SEED_WITHDRAWAL.deletedPaths.includes(name),
+  );
+  if (touchesRestrictedWithdrawal && !exactWithdrawalPaths) {
+    fail("restricted seed withdrawal must atomically change only every exact withdrawal path");
+  }
+  if (exactWithdrawalPaths) {
+    const boundPaths = Object.keys(RESTRICTED_SEED_WITHDRAWAL.baseOids).sort();
+    const changedPaths = [
+      ...RESTRICTED_SEED_WITHDRAWAL.deletedPaths,
+      ...RESTRICTED_SEED_WITHDRAWAL.modifiedPaths,
+    ].sort();
+    if (
+      boundPaths.length !== changedPaths.length ||
+      boundPaths.some((name, index) => name !== changedPaths[index])
+    ) fail("restricted seed withdrawal policy is not bound to every changed path");
+    for (const [name, expectedOid] of Object.entries(RESTRICTED_SEED_WITHDRAWAL.baseOids)) {
+      const observed = base.get(name);
+      if (!observed || observed.mode !== "100644" || observed.type !== "blob" || observed.oid !== expectedOid) {
+        fail(`restricted seed withdrawal base identity changed at ${name}`);
+      }
+    }
+    return {
+      mode: "withdrawal",
+      added,
+      deleted,
+      modified,
+      identities: RESTRICTED_SEED_WITHDRAWAL.releases.map(
+        (release) => `${release.templateId}@${release.releaseVersion}`,
+      ),
+    };
+  }
+
   if (deleted.length) fail(`Catalog PR may not delete files: ${deleted.join(", ")}`);
 
   const entry = added.filter((name) => ENTRY_PATH.test(name));
@@ -128,6 +215,7 @@ export function compareTreeMaps(base, candidate) {
   ) fail(`Catalog PR may modify only both aggregate files; modified=${modified.join(", ")}`);
 
   return {
+    mode: "add",
     added,
     deleted,
     modified,
@@ -144,10 +232,20 @@ export function compareRepositoryTrees(baseRoot, candidateRoot) {
 }
 
 async function main() {
-  const [baseArg, candidateArg] = process.argv.slice(2);
-  if (!baseArg || !candidateArg) fail("usage: validate-pr-trees.mjs <trusted-base-checkout> <candidate-checkout>");
+  const [baseArg, candidateArg, ...rest] = process.argv.slice(2);
+  if (!baseArg || !candidateArg) {
+    fail("usage: validate-pr-trees.mjs <trusted-base-checkout> <candidate-checkout> [--github-output <path>]");
+  }
+  let githubOutput;
+  if (rest.length === 2 && rest[0] === "--github-output" && rest[1]) githubOutput = rest[1];
+  else if (rest.length !== 0) fail("invalid validate-pr-trees arguments");
   const result = compareRepositoryTrees(baseArg, candidateArg);
-  console.log(`validated immutable one-release Catalog tree for ${result.templateId}@${result.releaseVersion}`);
+  if (githubOutput) appendFileSync(githubOutput, `mode=${result.mode}\n`, { encoding: "utf8" });
+  if (result.mode === "withdrawal") {
+    console.log(`validated exact restricted seed withdrawal tree for ${result.identities.join(", ")}`);
+  } else {
+    console.log(`validated immutable one-release Catalog tree for ${result.templateId}@${result.releaseVersion}`);
+  }
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

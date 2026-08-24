@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
-import { compareRepositoryTrees, validatePortableRepositoryPath } from "./validate-pr-trees.mjs";
+import { compareRepositoryTrees, RESTRICTED_SEED_WITHDRAWAL, validatePortableRepositoryPath } from "./validate-pr-trees.mjs";
 
 const PROVIDER_ID = "io.github.jarxunlai.scientific-figure-community";
 const CATALOG_REPOSITORY = "jarxunlai/ScientificFigureLibrary-community";
@@ -436,6 +436,46 @@ function escapeRegex(value) {
 
 function mapEntries(catalog) {
   return new Map(catalog.entries.map((entry) => [`${entry.templateId}@${entry.releaseVersion}`, entry]));
+}
+
+export async function validateRestrictedSeedWithdrawalContent({ baseRoot, candidateRoot }) {
+  const [baseCatalogFile, candidateCatalogFile, baseManifestFile, candidateManifestFile] = await Promise.all([
+    readJson(path.join(baseRoot, "catalog", "catalog.json"), "trusted base Catalog", true),
+    readJson(path.join(candidateRoot, "catalog", "catalog.json"), "withdrawal Catalog", true),
+    readJson(path.join(baseRoot, "catalog", "preview-manifest.json"), "trusted base preview manifest", true),
+    readJson(path.join(candidateRoot, "catalog", "preview-manifest.json"), "withdrawal preview manifest", true),
+  ]);
+  const baseCatalog = parseCatalog(baseCatalogFile.value, "trusted base Catalog");
+  const candidateCatalog = parseCatalog(candidateCatalogFile.value, "withdrawal Catalog");
+  const baseManifest = parseManifest(baseManifestFile.value, baseCatalog, "trusted base preview manifest");
+  const candidateManifest = parseManifest(candidateManifestFile.value, candidateCatalog, "withdrawal preview manifest");
+  const expectedIdentities = RESTRICTED_SEED_WITHDRAWAL.releases.map(
+    (release) => `${release.templateId}@${release.releaseVersion}`,
+  );
+  const baseIdentities = baseCatalog.entries.map((entry) => `${entry.templateId}@${entry.releaseVersion}`);
+  if (canonical(baseIdentities) !== canonical(expectedIdentities)) {
+    fail("trusted base Catalog is not the exact three-release withdrawal source");
+  }
+  if (
+    canonical(baseCatalog.provider) !== canonical(candidateCatalog.provider) ||
+    candidateCatalog.entries.length !== 0 || candidateManifest.entries.length !== 0
+  ) fail("restricted withdrawal must preserve Provider identity and remove all three exact releases from both aggregates");
+  if (baseManifest.entries.length !== expectedIdentities.length) {
+    fail("trusted base preview manifest is not the exact three-release withdrawal source");
+  }
+  if (Date.parse(candidateCatalog.generatedAt) <= Date.parse(baseCatalog.generatedAt)) {
+    fail("restricted withdrawal Catalog must record a later generatedAt timestamp");
+  }
+  const full = await validateFullRepository(candidateRoot);
+  if (full.entries !== 0) fail("restricted withdrawal candidate must contain zero current releases");
+  return { entries: full.entries, identities: expectedIdentities };
+}
+
+export async function validateRestrictedSeedWithdrawal({ baseRoot, candidateRoot }) {
+  const tree = compareRepositoryTrees(baseRoot, candidateRoot);
+  if (tree.mode !== "withdrawal") fail("candidate is not the exact restricted seed withdrawal tree");
+  const content = await validateRestrictedSeedWithdrawalContent({ baseRoot, candidateRoot });
+  return { ...tree, ...content };
 }
 
 export async function validatePublicationCandidate({ baseRoot, candidateRoot, archivesRoot }) {
