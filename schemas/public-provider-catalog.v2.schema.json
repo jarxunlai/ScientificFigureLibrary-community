@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/public-provider-catalog.v2.schema.json",
+  "title": "Scientific Figure Library public Provider Catalog v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "provider", "generatedAt", "entries", "previews", "retiredReleases", "previewManifest"],
+  "properties": {
+    "schema": { "const": "figure-library.public-provider-catalog.v2" },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providerId", "displayName", "catalogRepository", "archiveRepository"],
+      "properties": {
+        "providerId": { "const": "io.github.jarxunlai.scientific-figure-community" },
+        "displayName": { "const": "Scientific Figure Library Community" },
+        "catalogRepository": { "const": "jarxunlai/ScientificFigureLibrary-community" },
+        "archiveRepository": { "const": "jarxunlai/ScientificFigureLibrary-community-archives" }
+      }
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "entries": { "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/entries.jsonl" } } },
+    "previews": { "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/previews.jsonl" } } },
+    "retiredReleases": { "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/retired-releases.jsonl" } } },
+    "previewManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "const": "catalog/preview-manifest.json" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  },
+  "$defs": {
+    "jsonlIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "count", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

@@ -1,4 +1,4 @@
-name: validate-catalog
+name: sfl-community-catalog-policy
 
 on:
   pull_request_target:
@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   policy:
+    name: sfl-community-catalog-policy-v1
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -34,16 +35,19 @@ jobs:
           fetch-depth: 0
           path: archives
           persist-credentials: false
-      - name: Enforce one-release or exact withdrawal tree policy
+      - name: Enforce exact v2 add, withdrawal, or one-time migration tree policy
         id: policy
         shell: bash
         run: node trusted/scripts/validate-pr-trees.mjs trusted candidate --github-output "$GITHUB_OUTPUT"
       - name: Validate candidate catalog addition
         if: steps.policy.outputs.mode == 'add'
         run: node trusted/scripts/validate-repository.mjs trusted candidate archives
-      - name: Validate exact restricted seed withdrawal
-        if: steps.policy.outputs.mode == 'withdrawal'
+      - name: Validate metadata-only catalog withdrawal
+        if: steps.policy.outputs.mode == 'withdraw'
         run: node trusted/scripts/validate-withdrawal.mjs trusted candidate
+      - name: Validate one-time zero-entry v1-to-v2 migration
+        if: steps.policy.outputs.mode == 'migration'
+        run: node trusted/scripts/validate-migration.mjs trusted candidate
       - name: Validate the complete candidate snapshot
         run: node trusted/scripts/validate-full-repository.mjs candidate
       - name: Run trusted validator regression tests

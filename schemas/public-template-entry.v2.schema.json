@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/public-template-entry.v2.schema.json",
+  "title": "Scientific Figure Library public template entry v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "providerId", "templateId", "releaseVersion", "contentDigest", "immutableEntrySha256", "publicAssetKind", "language", "title", "description", "search", "archive", "preview", "status", "licenses", "provenance", "releaseState", "withdrawal"],
+  "properties": {
+    "schema": { "const": "figure-library.public-template-entry.v2" },
+    "providerId": { "const": "io.github.jarxunlai.scientific-figure-community" },
+    "templateId": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$" },
+    "releaseVersion": { "type": "string", "maxLength": 100, "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" },
+    "contentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "immutableEntrySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "publicAssetKind": { "enum": ["plot_template", "visual_reference"] },
+    "language": { "enum": ["R", "Python"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "dataProfile", "plotFamily", "tags", "packages", "codeFiles", "inputFiles"],
+      "properties": {
+        "application": { "type": "string", "maxLength": 4000 },
+        "dataProfile": { "type": "string", "maxLength": 4000 },
+        "plotFamily": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "tags": { "type": "array", "uniqueItems": true, "maxItems": 10000, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "packages": { "type": "array", "uniqueItems": true, "maxItems": 10000, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "codeFiles": { "type": "array", "uniqueItems": true, "minItems": 1, "maxItems": 10000, "items": { "type": "string", "pattern": "^payload/code/.+\\.(?:R|r|py)$", "maxLength": 1000 } },
+        "inputFiles": { "type": "array", "uniqueItems": true, "maxItems": 10000, "items": { "type": "string", "pattern": "^payload/data/.+", "maxLength": 1000 } }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "path", "bytes", "sha256"],
+      "properties": {
+        "repository": { "const": "jarxunlai/ScientificFigureLibrary-community-archives" },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "path": { "type": "string", "pattern": "^archives/[a-z0-9._-]+/[0-9A-Za-z.+-]+/[a-z0-9._-]+-[0-9A-Za-z.+-]+\\.zip$" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "preview": { "$ref": "public-preview-identity.v2.schema.json" },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upstreamStatus", "publisherVerified", "curationStatus", "renderValidation", "localReviewStatus", "plotExecutionByRecipient"],
+      "properties": {
+        "upstreamStatus": { "const": "published" },
+        "publisherVerified": { "type": "boolean" },
+        "curationStatus": { "enum": ["curated", "unreviewed"] },
+        "renderValidation": { "enum": ["ci_rendered", "publisher_attested", "unverified"] },
+        "localReviewStatus": { "const": "not_reviewed" },
+        "plotExecutionByRecipient": { "const": "not_run" }
+      }
+    },
+    "licenses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "syntheticData", "preview", "documentation"],
+      "properties": {
+        "code": { "enum": ["MIT", "Apache-2.0", "BSD-3-Clause", "GPL-3.0"] },
+        "syntheticData": { "type": ["string", "null"], "enum": ["CC-BY-4.0", "CC0-1.0", "CC-BY-SA-4.0", null] },
+        "preview": { "enum": ["CC-BY-4.0", "CC0-1.0", "CC-BY-SA-4.0"] },
+        "documentation": { "type": ["string", "null"], "enum": ["CC-BY-4.0", "CC0-1.0", "CC-BY-SA-4.0", null] }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "value"],
+        "properties": {
+          "type": { "enum": ["doi", "url", "inspiration", "note"] },
+          "value": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        }
+      }
+    },
+    "releaseState": { "enum": ["active", "withdrawn"] },
+    "withdrawal": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["withdrawnAt", "reason"],
+          "properties": {
+            "withdrawnAt": { "type": "string", "format": "date-time" },
+            "reason": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "bytes", "sha256"],
+              "properties": {
+                "path": { "type": "string", "pattern": "^withdrawals/[a-z0-9._-]+/[0-9A-Za-z.+-]+/reason\\.txt$" },
+                "bytes": { "type": "integer", "minimum": 1 },
+                "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

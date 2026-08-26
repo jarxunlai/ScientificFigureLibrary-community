@@ -4,60 +4,38 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
-const ENTRY_PATH = /^catalog\/entries\/([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)\/([0-9A-Za-z.+-]+)\.json$/u;
-const THUMB_PATH = /^thumbs\/([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)\/([0-9A-Za-z.+-]+)\.png$/u;
-const REVIEW_PATH = /^reviews\/([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)\/([0-9A-Za-z.+-]+)\.md$/u;
-const ALLOWED_MODIFIED = ["catalog/catalog.json", "catalog/preview-manifest.json"];
+const ID = "([a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?)";
+const VERSION = "([0-9A-Za-z.+-]+)";
+const ENTRY_PATH = new RegExp(`^catalog/entries/${ID}/${VERSION}\\.json$`, "u");
+const THUMB_PATH = new RegExp(`^catalog/thumbs/${ID}/${VERSION}\\.png$`, "u");
+const REVIEW_PATH = new RegExp(`^reviews/${ID}/${VERSION}\\.md$`, "u");
+const REASON_PATH = new RegExp(`^withdrawals/${ID}/${VERSION}/reason\\.txt$`, "u");
 
-const RESTRICTED_RELEASES = Object.freeze([
-  Object.freeze({
-    templateId: "ggsankeyfier-layout-color-combo",
-    releaseVersion: "1.0.0",
-    entryPath: "catalog/entries/ggsankeyfier-layout-color-combo/1.0.0.json",
-    thumbPath: "thumbs/ggsankeyfier-layout-color-combo/1.0.0.png",
-    reviewPath: "reviews/ggsankeyfier-layout-color-combo/1.0.0.md",
-  }),
-  Object.freeze({
-    templateId: "single-cell-enrichment-bar-pathway-genes",
-    releaseVersion: "1.0.0",
-    entryPath: "catalog/entries/single-cell-enrichment-bar-pathway-genes/1.0.0.json",
-    thumbPath: "thumbs/single-cell-enrichment-bar-pathway-genes/1.0.0.png",
-    reviewPath: "reviews/single-cell-enrichment-bar-pathway-genes/1.0.0.md",
-  }),
-  Object.freeze({
-    templateId: "umap-unchull-main-type-circles",
-    releaseVersion: "1.0.0",
-    entryPath: "catalog/entries/umap-unchull-main-type-circles/1.0.0.json",
-    thumbPath: "thumbs/umap-unchull-main-type-circles/1.0.0.png",
-    reviewPath: "reviews/umap-unchull-main-type-circles/1.0.0.md",
-  }),
+export const V2_ADD_MODIFIED_PATHS = Object.freeze([
+  "catalog/catalog.json",
+  "catalog/entries.jsonl",
+  "catalog/preview-manifest.json",
+  "catalog/previews.jsonl",
 ]);
-
-export const RESTRICTED_SEED_WITHDRAWAL = Object.freeze({
-  releases: RESTRICTED_RELEASES,
-  deletedPaths: Object.freeze(RESTRICTED_RELEASES.flatMap((release) => [
-    release.entryPath,
-    release.reviewPath,
-    release.thumbPath,
-  ]).sort()),
-  modifiedPaths: Object.freeze([...ALLOWED_MODIFIED]),
-  baseOids: Object.freeze({
-    "catalog/catalog.json": "d8cf0eff8c09b734992d402b6ba81d40a73476ab",
-    "catalog/preview-manifest.json": "d40c6e9eb378a0293b0413a30e840e5b7f436bdb",
-    "catalog/entries/ggsankeyfier-layout-color-combo/1.0.0.json": "90cbec8f28597de656114531e30bfa70ed01c893",
-    "catalog/entries/single-cell-enrichment-bar-pathway-genes/1.0.0.json": "e738295c9ba3af4cbe049a997b385e3802dd5279",
-    "catalog/entries/umap-unchull-main-type-circles/1.0.0.json": "215a3cd4be0226fb3f024f43ddd156c5a24c8a74",
-    "reviews/ggsankeyfier-layout-color-combo/1.0.0.md": "5aa67cf44c7798320a91cdea5510657baf3ed9d0",
-    "reviews/single-cell-enrichment-bar-pathway-genes/1.0.0.md": "48ab70e52ca5f3b375331d83b124066156ab1be5",
-    "reviews/umap-unchull-main-type-circles/1.0.0.md": "aa295a448091781cf2f00b3397120a3005e46419",
-    "thumbs/ggsankeyfier-layout-color-combo/1.0.0.png": "e1690b0f35f1ad247b74e08d0cf909797bed61ca",
-    "thumbs/single-cell-enrichment-bar-pathway-genes/1.0.0.png": "98c33839d8e86c622c2cad78a77f6c085410bb0f",
-    "thumbs/umap-unchull-main-type-circles/1.0.0.png": "435b955c3e34267e07258e5af9896642de8807d8",
-  }),
-});
+export const V2_MIGRATION_ADDED_PATHS = Object.freeze([
+  "catalog/entries.jsonl",
+  "catalog/previews.jsonl",
+  "catalog/retired-releases.jsonl",
+  "catalog/thumbs/.gitkeep",
+  "withdrawals/.gitkeep",
+]);
+export const V2_MIGRATION_DELETED_PATHS = Object.freeze(["thumbs/.gitkeep"]);
+export const V2_MIGRATION_MODIFIED_PATHS = Object.freeze([
+  "catalog/catalog.json",
+  "catalog/preview-manifest.json",
+]);
 
 function fail(message) {
   throw new Error(message);
+}
+
+function same(actual, expected) {
+  return actual.length === expected.length && actual.every((item, index) => item === expected[index]);
 }
 
 function runGit(repository, args, options = {}) {
@@ -66,9 +44,7 @@ function runGit(repository, args, options = {}) {
     maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
     windowsHide: true,
   });
-  if (result.error || result.status !== 0) {
-    fail(`git ${args.slice(0, 3).join(" ")} failed for trusted tree inspection`);
-  }
+  if (result.error || result.status !== 0) fail(`git ${args.slice(0, 3).join(" ")} failed for trusted tree inspection`);
   return result.stdout;
 }
 
@@ -110,10 +86,7 @@ function parseLsTree(output, label) {
   while (offset < buffer.byteLength) {
     const nul = buffer.indexOf(0, offset);
     if (nul < 0) fail(`${label} returned an unterminated git tree record`);
-    if (nul === offset) {
-      offset += 1;
-      continue;
-    }
+    if (nul === offset) { offset += 1; continue; }
     const bytes = buffer.subarray(offset, nul);
     offset = nul + 1;
     const tab = bytes.indexOf(0x09);
@@ -145,7 +118,19 @@ export function readGitTree(repository, revision = "HEAD") {
   return parseLsTree(output, `${root}@${revision}`);
 }
 
+function outerIdentity(matches, label) {
+  if (matches.some((match) => !match)) fail(`${label} path is malformed`);
+  const identity = `${matches[0][1]}@${matches[0][2]}`;
+  if (matches.some((match) => `${match[1]}@${match[2]}` !== identity)) fail(`${label} paths do not share one exact identity`);
+  return { templateId: matches[0][1], releaseVersion: matches[0][2] };
+}
+
+function assertCandidateTree(candidate) {
+  assertPortableTreeRecords([...candidate.values()], "candidate repository tree");
+}
+
 export function compareTreeMaps(base, candidate) {
+  assertCandidateTree(candidate);
   const added = [...candidate.keys()].filter((name) => !base.has(name)).sort();
   const deleted = [...base.keys()].filter((name) => !candidate.has(name)).sort();
   const modified = [...base.keys()].filter((name) => {
@@ -154,77 +139,51 @@ export function compareTreeMaps(base, candidate) {
     const prior = base.get(name);
     return prior.mode !== next.mode || prior.type !== next.type || prior.oid !== next.oid;
   }).sort();
-  const exactWithdrawalPaths =
-    added.length === 0 &&
-    deleted.length === RESTRICTED_SEED_WITHDRAWAL.deletedPaths.length &&
-    deleted.every((name, index) => name === RESTRICTED_SEED_WITHDRAWAL.deletedPaths[index]) &&
-    modified.length === RESTRICTED_SEED_WITHDRAWAL.modifiedPaths.length &&
-    modified.every((name, index) => name === RESTRICTED_SEED_WITHDRAWAL.modifiedPaths[index]);
-  const touchesRestrictedWithdrawal = [...added, ...deleted, ...modified].some(
-    (name) => RESTRICTED_SEED_WITHDRAWAL.deletedPaths.includes(name),
-  );
-  if (touchesRestrictedWithdrawal && !exactWithdrawalPaths) {
-    fail("restricted seed withdrawal must atomically change only every exact withdrawal path");
-  }
-  if (exactWithdrawalPaths) {
-    const boundPaths = Object.keys(RESTRICTED_SEED_WITHDRAWAL.baseOids).sort();
-    const changedPaths = [
-      ...RESTRICTED_SEED_WITHDRAWAL.deletedPaths,
-      ...RESTRICTED_SEED_WITHDRAWAL.modifiedPaths,
-    ].sort();
-    if (
-      boundPaths.length !== changedPaths.length ||
-      boundPaths.some((name, index) => name !== changedPaths[index])
-    ) fail("restricted seed withdrawal policy is not bound to every changed path");
-    for (const [name, expectedOid] of Object.entries(RESTRICTED_SEED_WITHDRAWAL.baseOids)) {
-      const observed = base.get(name);
-      if (!observed || observed.mode !== "100644" || observed.type !== "blob" || observed.oid !== expectedOid) {
-        fail(`restricted seed withdrawal base identity changed at ${name}`);
-      }
-    }
+
+  if (
+    same(added, V2_MIGRATION_ADDED_PATHS) &&
+    same(deleted, V2_MIGRATION_DELETED_PATHS) &&
+    same(modified, V2_MIGRATION_MODIFIED_PATHS)
+  ) return { mode: "migration", added, deleted, modified };
+
+  if (deleted.length) fail(`Community content PR may not delete files: ${deleted.join(", ")}`);
+
+  const addEntries = added.filter((name) => ENTRY_PATH.test(name));
+  const addThumbs = added.filter((name) => THUMB_PATH.test(name));
+  const addReviews = added.filter((name) => REVIEW_PATH.test(name));
+  if (
+    added.length === 3 && addEntries.length === 1 && addThumbs.length === 1 && addReviews.length === 1 &&
+    same(modified, V2_ADD_MODIFIED_PATHS)
+  ) {
+    const identity = outerIdentity(
+      [ENTRY_PATH.exec(addEntries[0]), THUMB_PATH.exec(addThumbs[0]), REVIEW_PATH.exec(addReviews[0])],
+      "Catalog addition",
+    );
     return {
-      mode: "withdrawal",
-      added,
-      deleted,
-      modified,
-      identities: RESTRICTED_SEED_WITHDRAWAL.releases.map(
-        (release) => `${release.templateId}@${release.releaseVersion}`,
-      ),
+      mode: "add", added, deleted, modified, ...identity,
+      entryPath: addEntries[0], thumbPath: addThumbs[0], reviewPath: addReviews[0],
     };
   }
 
-  if (deleted.length) fail(`Catalog PR may not delete files: ${deleted.join(", ")}`);
-
-  const entry = added.filter((name) => ENTRY_PATH.test(name));
-  const thumb = added.filter((name) => THUMB_PATH.test(name));
-  const review = added.filter((name) => REVIEW_PATH.test(name));
-  if (entry.length !== 1 || thumb.length !== 1 || review.length !== 1 || added.length !== 3) {
-    fail(`Catalog PR must add exactly one entry, one thumbnail, and one review; added=${added.join(", ")}`);
+  const reasons = added.filter((name) => REASON_PATH.test(name));
+  if (added.length === 1 && reasons.length === 1) {
+    const match = REASON_PATH.exec(reasons[0]);
+    const identity = { templateId: match[1], releaseVersion: match[2] };
+    const expectedModified = [
+      "catalog/catalog.json",
+      `catalog/entries/${identity.templateId}/${identity.releaseVersion}.json`,
+      "catalog/entries.jsonl",
+      `reviews/${identity.templateId}/${identity.releaseVersion}.md`,
+    ].sort();
+    if (same(modified, expectedModified)) {
+      return { mode: "withdraw", added, deleted, modified, ...identity, reasonPath: reasons[0], entryPath: expectedModified.find((name) => ENTRY_PATH.test(name)), reviewPath: expectedModified.find((name) => REVIEW_PATH.test(name)) };
+    }
   }
-  const entryMatch = ENTRY_PATH.exec(entry[0]);
-  const thumbMatch = THUMB_PATH.exec(thumb[0]);
-  const reviewMatch = REVIEW_PATH.exec(review[0]);
-  if (
-    !entryMatch || !thumbMatch || !reviewMatch ||
-    entryMatch[1] !== thumbMatch[1] || entryMatch[2] !== thumbMatch[2] ||
-    entryMatch[1] !== reviewMatch[1] || entryMatch[2] !== reviewMatch[2]
-  ) fail("Catalog entry, thumbnail, and review outer identities do not match exactly");
-  if (
-    modified.length !== ALLOWED_MODIFIED.length ||
-    modified.some((name, index) => name !== ALLOWED_MODIFIED[index])
-  ) fail(`Catalog PR may modify only both aggregate files; modified=${modified.join(", ")}`);
 
-  return {
-    mode: "add",
-    added,
-    deleted,
-    modified,
-    templateId: entryMatch[1],
-    releaseVersion: entryMatch[2],
-    entryPath: entry[0],
-    thumbPath: thumb[0],
-    reviewPath: review[0],
-  };
+  fail(
+    "Community PR must be exactly one v2 add (3 add + 4 modify), one v2 withdrawal " +
+    "(1 add + 4 modify), or the one-time zero-entry v1-to-v2 migration",
+  );
 }
 
 export function compareRepositoryTrees(baseRoot, candidateRoot) {
@@ -233,19 +192,14 @@ export function compareRepositoryTrees(baseRoot, candidateRoot) {
 
 async function main() {
   const [baseArg, candidateArg, ...rest] = process.argv.slice(2);
-  if (!baseArg || !candidateArg) {
-    fail("usage: validate-pr-trees.mjs <trusted-base-checkout> <candidate-checkout> [--github-output <path>]");
-  }
+  if (!baseArg || !candidateArg) fail("usage: validate-pr-trees.mjs <trusted-base-checkout> <candidate-checkout> [--github-output <path>]");
   let githubOutput;
   if (rest.length === 2 && rest[0] === "--github-output" && rest[1]) githubOutput = rest[1];
   else if (rest.length !== 0) fail("invalid validate-pr-trees arguments");
   const result = compareRepositoryTrees(baseArg, candidateArg);
   if (githubOutput) appendFileSync(githubOutput, `mode=${result.mode}\n`, { encoding: "utf8" });
-  if (result.mode === "withdrawal") {
-    console.log(`validated exact restricted seed withdrawal tree for ${result.identities.join(", ")}`);
-  } else {
-    console.log(`validated immutable one-release Catalog tree for ${result.templateId}@${result.releaseVersion}`);
-  }
+  const identity = result.templateId ? ` for ${result.templateId}@${result.releaseVersion}` : "";
+  console.log(`validated exact Community ${result.mode} tree${identity}`);
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
