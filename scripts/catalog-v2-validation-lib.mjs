@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { inspectPngStream } from "./streaming-png-validation-lib.mjs";
 import { compareRepositoryTrees, validatePortableRepositoryPath } from "./validate-pr-trees.mjs";
 import { canonicalJson, readCanonicalJsonl, scanWithdrawalReason } from "./stream-validation-lib.mjs";
 
@@ -347,15 +348,12 @@ async function inventoryDirectory(repositoryRoot, relativeDirectory) {
 
 async function verifyPreview(repositoryRoot, entry) {
   const previewPath = path.join(repositoryRoot, ...entry.preview.path.split("/"));
-  const stat = await fs.lstat(previewPath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== entry.preview.bytes) fail(`thumbnail byte identity mismatch: ${identityOf(entry)}`);
-  const bytes = await fs.readFile(previewPath);
-  const { decodeCanonicalPng } = await import("./catalog-validation-lib.mjs");
-  const decoded = decodeCanonicalPng(bytes, `thumbnail ${identityOf(entry)}`);
+  const decoded = await inspectPngStream(previewPath);
   if (
-    decoded.sha256 !== entry.preview.sha256 || decoded.width !== entry.preview.width ||
+    decoded.bytes !== entry.preview.bytes || decoded.sha256 !== entry.preview.sha256 || decoded.width !== entry.preview.width ||
     decoded.height !== entry.preview.height || decoded.canonicalRgbaSha256 !== entry.preview.canonicalRgbaSha256
   ) fail(`thumbnail image identity mismatch: ${identityOf(entry)}`);
+  return decoded;
 }
 
 async function readPublicText(filePath, label) {
@@ -389,14 +387,58 @@ async function verifyReview(repositoryRoot, entry) {
   } else if (text.includes("- Release state: withdrawn\n")) fail(`active review claims withdrawn state: ${identityOf(entry)}`);
 }
 
-function runGit(repository, args, { allowFailure = false, encoding = null, maxBuffer = 128 * 1024 * 1024 } = {}) {
+function runGit(repository, args, { allowFailure = false, encoding = null, maxBuffer = 64 * 1024 } = {}) {
   const safeRoot = path.resolve(repository).replaceAll("\\", "/");
   const result = spawnSync("git", ["-c", `safe.directory=${safeRoot}`, "-C", repository, ...args], { encoding, maxBuffer, windowsHide: true });
   if (!allowFailure && (result.error || result.status !== 0)) fail(`trusted archive git ${args.slice(0, 4).join(" ")} failed`);
   return result;
 }
 
-function verifyArchive(archivesRoot, entry) {
+function waitForChild(child) {
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+}
+
+async function hashGitBlobStream(repository, objectId, expectedBytes) {
+  const safeRoot = path.resolve(repository).replaceAll("\\", "/");
+  const child = spawn(
+    "git",
+    ["-c", `safe.directory=${safeRoot}`, "-C", repository, "cat-file", "blob", objectId],
+    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+  );
+  const exit = waitForChild(child);
+  const hash = createHash("sha256");
+  let bytes = 0;
+  let peakBufferedBytes = 0;
+  const stdout = (async () => {
+    for await (const chunk of child.stdout) {
+      bytes += chunk.byteLength;
+      if (bytes > expectedBytes) throw new Error("Archive bytes/SHA-256 mismatch");
+      peakBufferedBytes = Math.max(peakBufferedBytes, chunk.byteLength);
+      hash.update(chunk);
+    }
+  })();
+  const stderr = (async () => {
+    let observedBytes = 0;
+    for await (const chunk of child.stderr) {
+      observedBytes += chunk.byteLength;
+      if (observedBytes > 64 * 1024) throw new Error("trusted archive git stderr exceeded its control-plane boundary");
+    }
+  })();
+  try {
+    const [, , status] = await Promise.all([stdout, stderr, exit]);
+    if (status.code !== 0 || status.signal !== null) fail("trusted archive git cat-file blob failed");
+  } catch (error) {
+    child.kill();
+    await exit.catch(() => undefined);
+    throw error;
+  }
+  return { bytes, sha256: hash.digest("hex"), peakBufferedBytes };
+}
+
+async function verifyArchive(archivesRoot, entry) {
   const ancestor = runGit(archivesRoot, ["merge-base", "--is-ancestor", entry.archive.commit, "HEAD"], { allowFailure: true });
   if (ancestor.error || ancestor.status !== 0) fail("entry.archive.commit is not an ancestor of fixed Archives main");
   const result = runGit(archivesRoot, ["ls-tree", "-z", entry.archive.commit, "--", entry.archive.path]);
@@ -404,8 +446,13 @@ function verifyArchive(archivesRoot, entry) {
   const record = output.subarray(0, output.byteLength && output[output.byteLength - 1] === 0 ? -1 : undefined).toString("utf8");
   const match = /^100644 blob ([a-f0-9]{40})\t(.+)$/u.exec(record);
   if (!match || match[2] !== entry.archive.path) fail("entry.archive.path is not one exact regular blob");
-  const blob = runGit(archivesRoot, ["cat-file", "blob", match[1]]).stdout;
-  if (blob.byteLength !== entry.archive.bytes || sha256(blob) !== entry.archive.sha256) fail("Archive bytes/SHA-256 mismatch");
+  const sizeResult = runGit(archivesRoot, ["cat-file", "-s", match[1]], { encoding: "utf8" });
+  if (!/^(?:0|[1-9][0-9]*)\r?\n$/u.test(sizeResult.stdout)) fail("trusted archive git returned an invalid blob size");
+  const declaredGitBytes = Number(sizeResult.stdout.trim());
+  if (!Number.isSafeInteger(declaredGitBytes) || declaredGitBytes !== entry.archive.bytes) fail("Archive bytes/SHA-256 mismatch");
+  const observed = await hashGitBlobStream(archivesRoot, match[1], entry.archive.bytes);
+  if (observed.bytes !== entry.archive.bytes || observed.sha256 !== entry.archive.sha256) fail("Archive bytes/SHA-256 mismatch");
+  return observed;
 }
 
 export async function validateFullRepositoryV2(repositoryRoot) {
@@ -478,7 +525,7 @@ export async function validateCatalogAdditionV2({ baseRoot, candidateRoot, archi
   if (!mapsEqual(base.retired, candidate.retired)) fail("Catalog addition changed the append-only retired ledger");
   if (Date.parse(candidate.catalog.generatedAt) <= Date.parse(base.catalog.generatedAt)) fail("Catalog addition must advance generatedAt");
   await validateFullRepositoryV2(candidateRoot);
-  verifyArchive(archivesRoot, added);
+  await verifyArchive(archivesRoot, added);
   return { ...tree, archiveCommit: added.archive.commit, contentDigest: added.contentDigest };
 }
 
@@ -550,4 +597,5 @@ export const RETIRED_RELEASE_FLOOR = RETIRED_FLOOR_IDENTITIES;
 export const __test = Object.freeze({
   parseCatalogEnvelope, parsePreviewManifest, parsePreviewEntry, parseRetired,
   immutableProjection, expectedImmutableEntrySha256, CODE_LICENSES, CONTENT_LICENSES,
+  verifyArchive, verifyPreview, hashGitBlobStream,
 });

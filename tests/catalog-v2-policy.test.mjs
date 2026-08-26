@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync } from "node:zlib";
 import {
   __test, parseEntryV2, readCatalogV2, RETIRED_RELEASE_FLOOR,
   validateCatalogAdditionV2, validateCatalogWithdrawalV2,
@@ -27,6 +29,50 @@ test("workflow exposes the stable required check and no physical-deletion route"
 
 function record(treePath, oid = "a".repeat(40)) { return { path: treePath, mode: "100644", type: "blob", oid }; }
 function tree(paths) { return new Map(paths.map((treePath, index) => [treePath, record(treePath, String((index % 9) + 1).repeat(40))])); }
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function pngChunk(type, payload) {
+  const typeBytes = Buffer.from(type, "ascii");
+  const output = Buffer.alloc(12 + payload.byteLength);
+  output.writeUInt32BE(payload.byteLength, 0);
+  typeBytes.copy(output, 4);
+  payload.copy(output, 8);
+  let crc = 0xffffffff;
+  for (const byte of output.subarray(4, 8 + payload.byteLength)) crc = (CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)) >>> 0;
+  output.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 8 + payload.byteLength);
+  return output;
+}
+
+function largeRgbaPng(width = 8192, height = 256) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const rgbaRow = Buffer.alloc(width * 4, 0x41);
+  const raw = Buffer.alloc(height * (rgbaRow.byteLength + 1));
+  const rgbaHash = createHash("sha256");
+  for (let row = 0; row < height; row += 1) {
+    rgbaRow.copy(raw, row * (rgbaRow.byteLength + 1) + 1);
+    rgbaHash.update(rgbaRow);
+  }
+  const bytes = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw, { level: 0 })),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+  return { bytes, width, height, canonicalRgbaSha256: rgbaHash.digest("hex") };
+}
 
 test("tree policy accepts exact v2 addition shape", () => {
   const base = tree(["catalog/catalog.json", "catalog/entries.jsonl", "catalog/previews.jsonl", "catalog/preview-manifest.json"]);
@@ -224,6 +270,86 @@ test("v2 addition validator accepts one product-neutral release", async () => {
     await commitAll(candidate, "add");
     const result = await validateCatalogAdditionV2({ baseRoot: base, candidateRoot: candidate, archivesRoot: archives });
     assert.equal(result.templateId, "example-template");
+  } finally { await cleanup(temp); }
+});
+
+test("v2 thumbnail and Archive verification stay file-backed with bounded buffering", async () => {
+  const temp = await makeTemp("sfl-community-v2-streamed-media-");
+  try {
+    const repository = path.join(temp, "repository");
+    const archives = path.join(temp, "archives");
+    const archive = await archiveFixture(archives, "streamed-template");
+    const largeSource = path.join(temp, "large-archive.bin");
+    const handle = await fs.open(largeSource, "w");
+    try {
+      const block = Buffer.alloc(64 * 1024, 0x5a);
+      for (let index = 0; index < 512; index += 1) await handle.write(block);
+    } finally { await handle.close(); }
+    await fs.copyFile(largeSource, path.join(archives, archive.path));
+    const commit = await commitAll(archives, "large streamed archive");
+    const stat = await fs.stat(largeSource);
+    const hash = createHash("sha256");
+    const source = await fs.open(largeSource, "r");
+    try {
+      const block = Buffer.allocUnsafe(64 * 1024);
+      let position = 0;
+      while (position < stat.size) {
+        const { bytesRead } = await source.read(block, 0, Math.min(block.byteLength, stat.size - position), position);
+        assert.ok(bytesRead > 0);
+        hash.update(block.subarray(0, bytesRead));
+        position += bytesRead;
+      }
+    } finally { await source.close(); }
+    const largeArchive = { ...archive, commit, bytes: stat.size, sha256: hash.digest("hex") };
+    const { entry } = makeEntry({ templateId: "streamed-template", archive: largeArchive });
+    const previewFixture = largeRgbaPng();
+    const previewBytes = previewFixture.bytes;
+    entry.preview = {
+      ...entry.preview,
+      bytes: previewBytes.byteLength,
+      sha256: sha256(previewBytes),
+      width: previewFixture.width,
+      height: previewFixture.height,
+      canonicalRgbaSha256: previewFixture.canonicalRgbaSha256,
+    };
+    const previewPath = path.join(repository, ...entry.preview.path.split("/"));
+    await fs.mkdir(path.dirname(previewPath), { recursive: true });
+    await fs.writeFile(previewPath, previewBytes);
+
+    const preview = await __test.verifyPreview(repository, entry);
+    assert.equal(preview.sha256, entry.preview.sha256);
+    assert.ok(preview.bytes > 8 * 1024 * 1024);
+    assert.ok(preview.peakBufferedBytes < 1024 * 1024);
+    assert.ok(preview.peakBufferedBytes * 16 < preview.bytes);
+
+    const observedArchive = await __test.verifyArchive(archives, entry);
+    assert.equal(observedArchive.bytes, 32 * 1024 * 1024);
+    assert.equal(observedArchive.sha256, entry.archive.sha256);
+    assert.ok(observedArchive.peakBufferedBytes <= 1024 * 1024);
+    assert.ok(observedArchive.peakBufferedBytes * 16 < observedArchive.bytes);
+  } finally { await cleanup(temp); }
+});
+
+test("streamed v2 media verification rejects PNG CRC corruption and Archive digest mismatch", async () => {
+  const temp = await makeTemp("sfl-community-v2-streamed-media-negative-");
+  try {
+    const repository = path.join(temp, "repository");
+    const archives = path.join(temp, "archives");
+    const archive = await archiveFixture(archives, "streamed-negative");
+    const { entry, previewBytes } = makeEntry({ templateId: "streamed-negative", archive });
+    const previewPath = path.join(repository, ...entry.preview.path.split("/"));
+    await fs.mkdir(path.dirname(previewPath), { recursive: true });
+    const corrupted = Buffer.from(previewBytes);
+    const idat = corrupted.indexOf(Buffer.from("IDAT", "ascii"));
+    assert.ok(idat > 0);
+    corrupted[idat + 4] ^= 0x01;
+    await fs.writeFile(previewPath, corrupted);
+    await assert.rejects(__test.verifyPreview(repository, entry), /PNG IDAT chunk CRC mismatch/u);
+
+    await assert.rejects(
+      __test.verifyArchive(archives, { ...entry, archive: { ...entry.archive, sha256: "f".repeat(64) } }),
+      /Archive bytes\/SHA-256 mismatch/u,
+    );
   } finally { await cleanup(temp); }
 });
 
