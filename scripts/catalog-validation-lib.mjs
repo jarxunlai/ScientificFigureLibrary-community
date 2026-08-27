@@ -3,7 +3,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
-import { compareRepositoryTrees, RESTRICTED_SEED_WITHDRAWAL, validatePortableRepositoryPath } from "./validate-pr-trees.mjs";
+import { validatePortableRepositoryPath } from "./validate-pr-trees.mjs";
+import {
+  validateCatalogAdditionV2,
+  validateFullRepositoryV2,
+} from "./catalog-v2-validation-lib.mjs";
 
 const PROVIDER_ID = "io.github.jarxunlai.scientific-figure-community";
 const CATALOG_REPOSITORY = "jarxunlai/ScientificFigureLibrary-community";
@@ -438,91 +442,15 @@ function mapEntries(catalog) {
   return new Map(catalog.entries.map((entry) => [`${entry.templateId}@${entry.releaseVersion}`, entry]));
 }
 
-export async function validateRestrictedSeedWithdrawalContent({ baseRoot, candidateRoot }) {
-  const [baseCatalogFile, candidateCatalogFile, baseManifestFile, candidateManifestFile] = await Promise.all([
-    readJson(path.join(baseRoot, "catalog", "catalog.json"), "trusted base Catalog", true),
-    readJson(path.join(candidateRoot, "catalog", "catalog.json"), "withdrawal Catalog", true),
-    readJson(path.join(baseRoot, "catalog", "preview-manifest.json"), "trusted base preview manifest", true),
-    readJson(path.join(candidateRoot, "catalog", "preview-manifest.json"), "withdrawal preview manifest", true),
-  ]);
-  const baseCatalog = parseCatalog(baseCatalogFile.value, "trusted base Catalog");
-  const candidateCatalog = parseCatalog(candidateCatalogFile.value, "withdrawal Catalog");
-  const baseManifest = parseManifest(baseManifestFile.value, baseCatalog, "trusted base preview manifest");
-  const candidateManifest = parseManifest(candidateManifestFile.value, candidateCatalog, "withdrawal preview manifest");
-  const expectedIdentities = RESTRICTED_SEED_WITHDRAWAL.releases.map(
-    (release) => `${release.templateId}@${release.releaseVersion}`,
-  );
-  const baseIdentities = baseCatalog.entries.map((entry) => `${entry.templateId}@${entry.releaseVersion}`);
-  if (canonical(baseIdentities) !== canonical(expectedIdentities)) {
-    fail("trusted base Catalog is not the exact three-release withdrawal source");
-  }
-  if (
-    canonical(baseCatalog.provider) !== canonical(candidateCatalog.provider) ||
-    candidateCatalog.entries.length !== 0 || candidateManifest.entries.length !== 0
-  ) fail("restricted withdrawal must preserve Provider identity and remove all three exact releases from both aggregates");
-  if (baseManifest.entries.length !== expectedIdentities.length) {
-    fail("trusted base preview manifest is not the exact three-release withdrawal source");
-  }
-  if (Date.parse(candidateCatalog.generatedAt) <= Date.parse(baseCatalog.generatedAt)) {
-    fail("restricted withdrawal Catalog must record a later generatedAt timestamp");
-  }
-  const full = await validateFullRepository(candidateRoot);
-  if (full.entries !== 0) fail("restricted withdrawal candidate must contain zero current releases");
-  return { entries: full.entries, identities: expectedIdentities };
-}
-
-export async function validateRestrictedSeedWithdrawal({ baseRoot, candidateRoot }) {
-  const tree = compareRepositoryTrees(baseRoot, candidateRoot);
-  if (tree.mode !== "withdrawal") fail("candidate is not the exact restricted seed withdrawal tree");
-  const content = await validateRestrictedSeedWithdrawalContent({ baseRoot, candidateRoot });
-  return { ...tree, ...content };
-}
-
 export async function validatePublicationCandidate({ baseRoot, candidateRoot, archivesRoot }) {
-  const tree = compareRepositoryTrees(baseRoot, candidateRoot);
-  const [baseCatalogFile, candidateCatalogFile, baseManifestFile, candidateManifestFile, standaloneFile] = await Promise.all([
-    readJson(path.join(baseRoot, "catalog", "catalog.json"), "trusted base Catalog"),
-    readJson(path.join(candidateRoot, "catalog", "catalog.json"), "candidate Catalog", true),
-    readJson(path.join(baseRoot, "catalog", "preview-manifest.json"), "trusted base preview manifest"),
-    readJson(path.join(candidateRoot, "catalog", "preview-manifest.json"), "candidate preview manifest", true),
-    readJson(path.join(candidateRoot, ...tree.entryPath.split("/")), "candidate standalone entry", true),
-  ]);
-  const baseCatalog = parseCatalog(baseCatalogFile.value, "trusted base Catalog");
-  const candidateCatalog = parseCatalog(candidateCatalogFile.value, "candidate Catalog");
-  const baseManifest = parseManifest(baseManifestFile.value, baseCatalog, "trusted base preview manifest");
-  const candidateManifest = parseManifest(candidateManifestFile.value, candidateCatalog, "candidate preview manifest");
-  const standalone = parseEntry(standaloneFile.value, "candidate standalone entry");
-  if (standalone.templateId !== tree.templateId || standalone.releaseVersion !== tree.releaseVersion) {
-    fail("outer standalone entry path and inner identity do not match");
-  }
-  const baseEntries = mapEntries(baseCatalog);
-  const candidateEntries = mapEntries(candidateCatalog);
-  const newIdentity = `${tree.templateId}@${tree.releaseVersion}`;
-  if (
-    candidateEntries.size !== baseEntries.size + 1 || baseEntries.has(newIdentity) ||
-    !candidateEntries.has(newIdentity) || canonical(candidateEntries.get(newIdentity)) !== canonical(standalone)
-  ) fail("candidate Catalog must append exactly the new standalone release identity");
-  for (const [identity, prior] of baseEntries) {
-    const next = candidateEntries.get(identity);
-    if (!next || canonical(next) !== canonical(prior)) fail(`candidate Catalog changed or withdrew immutable release ${identity}`);
-  }
-  if (canonical(candidateCatalog.provider) !== canonical(baseCatalog.provider)) fail("candidate changed the immutable Provider identity");
-  if (
-    candidateManifest.entries.length !== baseManifest.entries.length + 1 ||
-    canonical(candidateManifest.entries.filter((item) => `${item.templateId}@${item.releaseVersion}` !== newIdentity)) !== canonical(baseManifest.entries)
-  ) fail("candidate preview manifest is not an append-only extension of the trusted base");
-  const manifestNew = candidateManifest.entries.find((item) => `${item.templateId}@${item.releaseVersion}` === newIdentity);
-  if (!manifestNew || canonical(manifestNew) !== canonical(previewManifestEntry(standalone))) {
-    fail("outer thumbnail, standalone entry, Catalog, and preview manifest identities are not exactly bound");
-  }
-  const rawUrl = verifyArchive(archivesRoot, standalone);
-  await verifyPreview(candidateRoot, standalone);
-  await verifyReview(candidateRoot, standalone);
-  return { ...tree, archiveRawUrl: rawUrl, archiveCommit: standalone.archive.commit };
+  return validateCatalogAdditionV2({ baseRoot, candidateRoot, archivesRoot });
 }
 
 export async function validateFullRepository(repositoryRoot) {
   const catalogFile = await readJson(path.join(repositoryRoot, "catalog", "catalog.json"), "repository Catalog");
+  if (catalogFile.value?.schema === "figure-library.public-provider-catalog.v2") {
+    return validateFullRepositoryV2(repositoryRoot);
+  }
   const manifestFile = await readJson(path.join(repositoryRoot, "catalog", "preview-manifest.json"), "repository preview manifest");
   const catalogValue = parseCatalog(catalogFile.value, "repository Catalog");
   parseManifest(manifestFile.value, catalogValue, "repository preview manifest");
@@ -553,12 +481,11 @@ export async function validateFullRepository(repositoryRoot) {
     await verifyPreview(repositoryRoot, entry);
     await verifyReview(repositoryRoot, entry);
   }
-  for (const [licensePath, requiredText] of [
-    ["LICENSES/MIT.txt", "MIT License"],
-    ["LICENSES/CC-BY-4.0.txt", "Creative Commons Attribution 4.0 International Public License"],
+  for (const [licensePath, requiredText, minimum] of [
+    ["LICENSES/MIT.txt", "MIT License", 500],
+    ["LICENSES/CC-BY-4.0.txt", "Attribution 4.0 International", 10_000],
   ]) {
     const { text } = await readUtf8(path.join(repositoryRoot, ...licensePath.split("/")), 128 * 1024, licensePath);
-    const minimum = licensePath.endsWith("MIT.txt") ? 500 : 10_000;
     if (!text.includes(requiredText) || text.length <= minimum) fail(`${licensePath} is not the required complete license text`);
   }
   return { entries: catalogValue.entries.length };

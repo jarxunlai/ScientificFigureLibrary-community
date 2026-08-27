@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/public-preview-manifest.v2.schema.json",
+  "title": "Scientific Figure Library public preview manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "providerId", "previews"],
+  "properties": {
+    "schema": { "const": "figure-library.public-preview-manifest.v2" },
+    "providerId": { "const": "io.github.jarxunlai.scientific-figure-community" },
+    "previews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "count", "bytes", "sha256"],
+      "properties": {
+        "path": { "const": "catalog/previews.jsonl" },
+        "count": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

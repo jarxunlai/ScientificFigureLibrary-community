@@ -13,28 +13,45 @@ This repository stores catalog entries, thumbnails, review records, schemas, and
 
 No tool, workflow, or MCP server in this project automatically merges either pull request.
 
-## Restricted emergency withdrawal
+## Catalog v2 lifecycle
 
-The normal publication contract remains append-only: one immutable release is added per Catalog PR and an existing public identity is never edited in place. A separately reviewed, maintainer-authored policy permits one exceptional, atomic withdrawal of exactly these three seed releases:
+The policy supports three mutually exclusive content PR shapes after the
+separate policy bootstrap is merged:
 
-```text
-ggsankeyfier-layout-color-combo@1.0.0
-single-cell-enrichment-bar-pathway-genes@1.0.0
-umap-unchull-main-type-circles@1.0.0
-```
+- one v2 release addition: exactly 3 additions and 4 aggregate modifications;
+- one metadata-only `active -> withdrawn` transition: exactly one immutable
+  reason addition and 4 metadata/review modifications;
+- one exact migration of the current healthy zero-entry v1 snapshot to v2.
 
-The exception is bound to the pre-reviewed Git blob identities. It succeeds only when all three standalone entries, reviews, and thumbnails disappear together and both aggregate files become the matching empty snapshot. It rejects partial withdrawal, additions, and workflow, schema, policy, or unrelated byte drift. Removing the releases from the current Catalog does not rewrite Git history or claim that previously installed snapshots cease to exist.
+Content PRs may not delete a file. Withdrawn releases keep their immutable
+archive and thumbnail. The three pre-v2 physically redacted identities are
+recorded only in the v2 append-only retired ledger and can never be reused.
+The validator no longer contains any physical release-deletion capability.
+
+This policy bootstrap does not itself migrate `catalog/catalog.json`; the
+repository remains a healthy zero-entry v1 snapshot until a separately
+reviewed exact migration PR is manually merged.
 
 ## Trust boundary
 
-The central catalog is not fetched at SFL startup. A reviewed catalog snapshot, preview manifest, thumbnails, licenses, and `source.lock.json` are vendored into a specific SFL plugin release. Installing that plugin release is the trust and update boundary.
+SFL 0.7 may activate a verified cached Community snapshot after startup while
+retaining a bundled offline fallback. The selected trust model is GitHub
+repository owner trust. Normal-flow rulesets and the stable
+`sfl-community-catalog-policy-v1` check are defense in depth; administrators
+may always bypass. This repository does not claim an independent central
+signature or an unbypassable PR/check chain. Tools never merge automatically.
 
 ## Licenses
 
 - Repository tooling and schemas: [MIT](LICENSE)
-- Vendored public-template code license: [MIT](LICENSES/MIT.txt)
-- Synthetic data, generated previews/thumbnails, and documentation unless
-  stated otherwise: [CC BY 4.0](LICENSES/CC-BY-4.0.txt)
+- Public-template code: [MIT](LICENSES/MIT.txt),
+  [Apache-2.0](LICENSES/Apache-2.0.txt),
+  [BSD-3-Clause](LICENSES/BSD-3-Clause.txt), or
+  [GPL-3.0](LICENSES/GPL-3.0.txt)
+- Synthetic data, generated previews/thumbnails, and documentation:
+  [CC-BY-4.0](LICENSES/CC-BY-4.0.txt),
+  [CC0-1.0](LICENSES/CC0-1.0.txt), or
+  [CC-BY-SA-4.0](LICENSES/CC-BY-SA-4.0.txt)
 - Each submitted template declares its own code and content licenses; a catalog entry never overrides an archive's declarations.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).

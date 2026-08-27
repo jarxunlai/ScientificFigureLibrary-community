@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jarxunlai/ScientificFigureLibrary-community/blob/main/schemas/public-retired-release.v2.schema.json",
+  "title": "Scientific Figure Library retired public release identity v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "providerId", "templateId", "releaseVersion"],
+  "properties": {
+    "schema": { "const": "figure-library.public-retired-release.v2" },
+    "providerId": { "const": "io.github.jarxunlai.scientific-figure-community" },
+    "templateId": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$" },
+    "releaseVersion": { "type": "string", "maxLength": 100, "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" }
+  }
+}
