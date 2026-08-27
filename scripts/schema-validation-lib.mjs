@@ -68,4 +68,3 @@ export function assertV2Schema(name, value, label = name) {
 }
 
 export const V2_SCHEMA_FILES = SCHEMA_FILES;
-
