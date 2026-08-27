@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { V2_SCHEMA_FILES, assertV2Schema } from "./schema-validation-lib.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const schema = JSON.parse(await fs.readFile(path.join(root, "schemas", "public-template-entry.v1.schema.json"), "utf8"));
@@ -49,4 +50,22 @@ for (const name of [
   assert.equal(document.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(document.additionalProperties, false);
 }
+assert.deepEqual(Object.values(V2_SCHEMA_FILES), [
+  "public-preview-identity.v2.schema.json",
+  "public-template-entry.v2.schema.json",
+  "public-preview-entry.v2.schema.json",
+  "public-retired-release.v2.schema.json",
+  "public-preview-manifest.v2.schema.json",
+  "public-provider-catalog.v2.schema.json",
+]);
+assert.throws(
+  () => assertV2Schema("retiredRelease", {
+    schema: "figure-library.public-retired-release.v2",
+    providerId: "io.github.jarxunlai.scientific-figure-community",
+    templateId: "schema-execution-canary",
+    releaseVersion: "1.0.0",
+    unexpected: true,
+  }),
+  /trusted v2 JSON Schema/u,
+);
 console.log("validated v1 compatibility, v2 schema, SemVer, status, and complete license policy");

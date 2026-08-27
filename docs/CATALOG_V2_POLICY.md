@@ -76,8 +76,13 @@ physical deletion mode.
 ## Trust and workflow
 
 The stable required check is `sfl-community-catalog-policy-v1`. The workflow
-executes validators from the trusted base against an untrusted candidate and
-uses a fixed Archives `main` observation for addition. Policy changes are
+installs only the exact dependencies pinned by the trusted base lockfile, then
+executes the trusted Draft 2020-12 schemas and cross-file semantic validators
+against an untrusted candidate. Candidate code and dependencies are never
+executed. For additions, the fixed Archives `main` observation must still
+contain the exact Git blob pinned by the immutable Archive commit, so an
+Archive path that was later deleted or replaced cannot enter the Catalog.
+Policy changes are
 separate maintainer PRs and are expected to be rejected by the pre-bootstrap
 content tree policy until a human reviews and manually merges the bootstrap.
 

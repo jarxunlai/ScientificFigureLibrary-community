@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { inspectPngStream } from "./streaming-png-validation-lib.mjs";
+import { assertV2Schema } from "./schema-validation-lib.mjs";
 import { compareRepositoryTrees, validatePortableRepositoryPath } from "./validate-pr-trees.mjs";
 import { canonicalJson, readCanonicalJsonl, scanWithdrawalReason } from "./stream-validation-lib.mjs";
 
@@ -101,6 +102,7 @@ function expectedImmutableEntrySha256(entry) {
 }
 
 export function parseEntryV2(value, label = "public entry v2") {
+  assertV2Schema("entry", value, label);
   assertExactKeys(value, ENTRY_KEYS, label);
   if (value.schema !== "figure-library.public-template-entry.v2" || value.providerId !== PROVIDER_ID) fail(`${label} has invalid schema/Provider`);
   const templateId = assertText(value.templateId, `${label}.templateId`, 128);
@@ -182,6 +184,7 @@ export function parseEntryV2(value, label = "public entry v2") {
 }
 
 function parsePreviewEntry(value, label) {
+  assertV2Schema("previewEntry", value, label);
   assertExactKeys(value, ["preview", "providerId", "releaseVersion", "schema", "templateId"], label);
   if (value.schema !== "figure-library.public-preview-entry.v2" || value.providerId !== PROVIDER_ID) fail(`${label} has invalid schema/Provider`);
   const shell = {
@@ -200,6 +203,7 @@ function parsePreviewEntry(value, label) {
 }
 
 function parseRetired(value, label) {
+  assertV2Schema("retiredRelease", value, label);
   assertExactKeys(value, ["providerId", "releaseVersion", "schema", "templateId"], label);
   if (value.schema !== "figure-library.public-retired-release.v2" || value.providerId !== PROVIDER_ID) fail(`${label} has invalid schema/Provider`);
   if (!TEMPLATE_ID.test(value.templateId) || !SEMVER.test(value.releaseVersion)) fail(`${label} has invalid identity`);
@@ -228,6 +232,7 @@ function parseJsonlIdentity(value, label, expectedPath) {
 }
 
 function parseCatalogEnvelope(value, label) {
+  assertV2Schema("catalog", value, label);
   assertExactKeys(value, ["entries", "generatedAt", "previewManifest", "previews", "provider", "retiredReleases", "schema"], label);
   if (value.schema !== "figure-library.public-provider-catalog.v2") fail(`${label}.schema is invalid`);
   assertExactKeys(value.provider, ["archiveRepository", "catalogRepository", "displayName", "providerId"], `${label}.provider`);
@@ -247,6 +252,7 @@ function parseCatalogEnvelope(value, label) {
 }
 
 function parsePreviewManifest(value, label) {
+  assertV2Schema("previewManifest", value, label);
   assertExactKeys(value, ["previews", "providerId", "schema"], label);
   if (value.schema !== "figure-library.public-preview-manifest.v2" || value.providerId !== PROVIDER_ID) fail(`${label} has invalid schema/Provider`);
   parseJsonlIdentity(value.previews, `${label}.previews`, "catalog/previews.jsonl");
@@ -438,19 +444,26 @@ async function hashGitBlobStream(repository, objectId, expectedBytes) {
   return { bytes, sha256: hash.digest("hex"), peakBufferedBytes };
 }
 
-async function verifyArchive(archivesRoot, entry) {
-  const ancestor = runGit(archivesRoot, ["merge-base", "--is-ancestor", entry.archive.commit, "HEAD"], { allowFailure: true });
-  if (ancestor.error || ancestor.status !== 0) fail("entry.archive.commit is not an ancestor of fixed Archives main");
-  const result = runGit(archivesRoot, ["ls-tree", "-z", entry.archive.commit, "--", entry.archive.path]);
+function readExactRegularBlob(repository, revision, archivePath, label) {
+  const result = runGit(repository, ["ls-tree", "-z", revision, "--", archivePath]);
   const output = Buffer.from(result.stdout);
   const record = output.subarray(0, output.byteLength && output[output.byteLength - 1] === 0 ? -1 : undefined).toString("utf8");
   const match = /^100644 blob ([a-f0-9]{40})\t(.+)$/u.exec(record);
-  if (!match || match[2] !== entry.archive.path) fail("entry.archive.path is not one exact regular blob");
-  const sizeResult = runGit(archivesRoot, ["cat-file", "-s", match[1]], { encoding: "utf8" });
+  if (!match || match[2] !== archivePath) fail(`${label} is not one exact regular blob`);
+  return match[1];
+}
+
+async function verifyArchive(archivesRoot, entry) {
+  const ancestor = runGit(archivesRoot, ["merge-base", "--is-ancestor", entry.archive.commit, "HEAD"], { allowFailure: true });
+  if (ancestor.error || ancestor.status !== 0) fail("entry.archive.commit is not an ancestor of fixed Archives main");
+  const immutableBlob = readExactRegularBlob(archivesRoot, entry.archive.commit, entry.archive.path, "entry.archive.path");
+  const currentBlob = readExactRegularBlob(archivesRoot, "HEAD", entry.archive.path, "fixed Archives main archive path");
+  if (currentBlob !== immutableBlob) fail("fixed Archives main no longer retains the exact immutable Archive blob");
+  const sizeResult = runGit(archivesRoot, ["cat-file", "-s", immutableBlob], { encoding: "utf8" });
   if (!/^(?:0|[1-9][0-9]*)\r?\n$/u.test(sizeResult.stdout)) fail("trusted archive git returned an invalid blob size");
   const declaredGitBytes = Number(sizeResult.stdout.trim());
   if (!Number.isSafeInteger(declaredGitBytes) || declaredGitBytes !== entry.archive.bytes) fail("Archive bytes/SHA-256 mismatch");
-  const observed = await hashGitBlobStream(archivesRoot, match[1], entry.archive.bytes);
+  const observed = await hashGitBlobStream(archivesRoot, immutableBlob, entry.archive.bytes);
   if (observed.bytes !== entry.archive.bytes || observed.sha256 !== entry.archive.sha256) fail("Archive bytes/SHA-256 mismatch");
   return observed;
 }

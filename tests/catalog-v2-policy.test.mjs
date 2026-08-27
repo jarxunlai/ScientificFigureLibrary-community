@@ -12,6 +12,7 @@ import {
 } from "../scripts/catalog-v2-validation-lib.mjs";
 import { compareTreeMaps, V2_ADD_MODIFIED_PATHS, V2_MIGRATION_ADDED_PATHS, V2_MIGRATION_DELETED_PATHS, V2_MIGRATION_MODIFIED_PATHS } from "../scripts/validate-pr-trees.mjs";
 import { validateFullRepository } from "../scripts/catalog-validation-lib.mjs";
+import { canonicalJson, readCanonicalJsonl } from "../scripts/stream-validation-lib.mjs";
 import {
   activeReview, archiveFixture, cleanup, cloneRepositoryFiles, commitAll,
   createV1ZeroRepository, createV2Repository, fixturePng, identity, installEntry,
@@ -24,6 +25,9 @@ test("workflow exposes the stable required check and no physical-deletion route"
   assert.match(workflow, /mode == 'add'/u);
   assert.match(workflow, /mode == 'withdraw'/u);
   assert.match(workflow, /mode == 'migration'/u);
+  assert.match(workflow, /actions\/setup-node@[a-f0-9]{40}/u);
+  assert.match(workflow, /npm --prefix trusted ci --ignore-scripts --no-audit --no-fund/u);
+  assert.doesNotMatch(workflow, /npm --prefix candidate|node candidate\/tests/u);
   assert.doesNotMatch(workflow, /restricted seed|exact-three|mode == 'withdrawal'/iu);
 });
 
@@ -150,8 +154,38 @@ test("strict v2 parser accepts R plot and Python data-free visual reference", as
 test("strict v2 parser rejects unknown keys and immutable digest mismatch", () => {
   const archive = { repository: "jarxunlai/ScientificFigureLibrary-community-archives", commit: "a".repeat(40), path: "archives/example-template/1.0.0/example-template-1.0.0.zip", bytes: 1, sha256: "b".repeat(64) };
   const entry = makeEntry({ archive }).entry;
-  assert.throws(() => parseEntryV2({ ...entry, extra: true }), /fixed keys/u);
+  assert.throws(() => parseEntryV2({ ...entry, extra: true }), /trusted v2 JSON Schema.*additional properties/u);
   assert.throws(() => parseEntryV2({ ...entry, immutableEntrySha256: "f".repeat(64) }), /does not bind/u);
+});
+
+test("executable v2 schema rejects a JSON-Schema-only tag length violation", () => {
+  const archive = { repository: "jarxunlai/ScientificFigureLibrary-community-archives", commit: "a".repeat(40), path: "archives/example-template/1.0.0/example-template-1.0.0.zip", bytes: 1, sha256: "b".repeat(64) };
+  const entry = makeEntry({ archive }).entry;
+  entry.search.tags = ["x".repeat(101)];
+  entry.immutableEntrySha256 = __test.expectedImmutableEntrySha256(entry);
+  assert.throws(() => parseEntryV2(entry), /trusted v2 JSON Schema.*must NOT have more than 100 characters/u);
+});
+
+test("executable v2 schema rejects a calendar-invalid RFC3339 timestamp", () => {
+  const archive = { repository: "jarxunlai/ScientificFigureLibrary-community-archives", commit: "a".repeat(40), path: "archives/example-template/1.0.0/example-template-1.0.0.zip", bytes: 1, sha256: "b".repeat(64) };
+  const entry = makeEntry({ archive }).entry;
+  entry.releaseState = "withdrawn";
+  entry.withdrawal = {
+    withdrawnAt: "2026-02-30T00:00:00Z",
+    reason: { path: "withdrawals/example-template/1.0.0/reason.txt", bytes: 1, sha256: "b".repeat(64) },
+  };
+  assert.throws(() => parseEntryV2(entry), /trusted v2 JSON Schema/u);
+});
+
+test("canonical JSON and JSONL reject unpaired UTF-16 surrogates", async () => {
+  assert.throws(() => canonicalJson({ value: "\ud800" }), /unpaired UTF-16 surrogate/u);
+  assert.throws(() => canonicalJson({ ["\udc00"]: "value" }), /unpaired UTF-16 surrogate/u);
+  const temp = await makeTemp("sfl-community-surrogate-jsonl-");
+  try {
+    const filePath = path.join(temp, "records.jsonl");
+    await fs.writeFile(filePath, '{"value":"\\ud800"}\n', "utf8");
+    await assert.rejects(readCanonicalJsonl(filePath), /unpaired UTF-16 surrogate/u);
+  } finally { await cleanup(temp); }
 });
 
 test("strict v2 parser rejects plot without data, language mismatch, and non-allowlisted license", () => {
@@ -165,7 +199,7 @@ test("strict v2 parser rejects plot without data, language mismatch, and non-all
   const badLicense = makeEntry({ archive }).entry;
   badLicense.licenses.code = "CC-BY-NC-4.0";
   badLicense.immutableEntrySha256 = __test.expectedImmutableEntrySha256(badLicense);
-  assert.throws(() => parseEntryV2(badLicense), /non-allowlisted/u);
+  assert.throws(() => parseEntryV2(badLicense), /trusted v2 JSON Schema.*allowed values/u);
 });
 
 test("strict v2 parser enforces active/withdrawn discriminant", () => {
@@ -350,6 +384,27 @@ test("streamed v2 media verification rejects PNG CRC corruption and Archive dige
       __test.verifyArchive(archives, { ...entry, archive: { ...entry.archive, sha256: "f".repeat(64) } }),
       /Archive bytes\/SHA-256 mismatch/u,
     );
+  } finally { await cleanup(temp); }
+});
+
+test("Archive validation requires current main to retain the exact pinned blob", async () => {
+  const temp = await makeTemp("sfl-community-archive-head-identity-");
+  try {
+    for (const mode of ["replace", "delete"]) {
+      const archives = path.join(temp, mode);
+      const archive = await archiveFixture(archives, `archive-head-${mode}`);
+      const { entry } = makeEntry({ templateId: `archive-head-${mode}`, archive });
+      if (mode === "replace") {
+        await write(archives, archive.path, Buffer.from("replacement archive bytes\n", "utf8"));
+      } else {
+        await fs.rm(path.join(archives, ...archive.path.split("/")));
+      }
+      await commitAll(archives, `${mode} immutable Archive on current main`);
+      await assert.rejects(
+        __test.verifyArchive(archives, entry),
+        /fixed Archives main (?:no longer retains|archive path is not)/u,
+      );
+    }
   } finally { await cleanup(temp); }
 });
 

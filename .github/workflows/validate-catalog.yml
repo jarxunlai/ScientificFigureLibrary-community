@@ -35,6 +35,14 @@ jobs:
           fetch-depth: 0
           path: archives
           persist-credentials: false
+      - name: Use the trusted policy Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: trusted/package-lock.json
+      - name: Install pinned trusted schema validator
+        run: npm --prefix trusted ci --ignore-scripts --no-audit --no-fund
       - name: Enforce exact v2 add, withdrawal, or one-time migration tree policy
         id: policy
         shell: bash

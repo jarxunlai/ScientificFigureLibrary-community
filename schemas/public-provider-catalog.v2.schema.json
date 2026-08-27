@@ -19,9 +19,9 @@
       }
     },
     "generatedAt": { "type": "string", "format": "date-time" },
-    "entries": { "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/entries.jsonl" } } },
-    "previews": { "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/previews.jsonl" } } },
-    "retiredReleases": { "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/retired-releases.jsonl" } } },
+    "entries": { "type": "object", "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/entries.jsonl" } } },
+    "previews": { "type": "object", "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/previews.jsonl" } } },
+    "retiredReleases": { "type": "object", "$ref": "#/$defs/jsonlIdentity", "properties": { "path": { "const": "catalog/retired-releases.jsonl" } } },
     "previewManifest": {
       "type": "object",
       "additionalProperties": false,

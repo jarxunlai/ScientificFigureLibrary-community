@@ -11,10 +11,26 @@ function fail(message) {
   throw new Error(message);
 }
 
+function assertWellFormedUnicode(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) fail("canonical JSON contains an unpaired UTF-16 surrogate");
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      fail("canonical JSON contains an unpaired UTF-16 surrogate");
+    }
+  }
+}
+
 export function canonicalJson(value, stack = new Set()) {
   if (value === null) return "null";
   if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "string") {
+    assertWellFormedUnicode(value);
+    return JSON.stringify(value);
+  }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) fail("canonical JSON contains a non-finite number");
     return JSON.stringify(value);
@@ -24,7 +40,7 @@ export function canonicalJson(value, stack = new Set()) {
   stack.add(value);
   try {
     if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item, stack)).join(",")}]`;
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key], stack)}`).join(",")}}`;
+    return `{${Object.keys(value).sort().map((key) => `${canonicalJson(key, stack)}:${canonicalJson(value[key], stack)}`).join(",")}}`;
   } finally {
     stack.delete(value);
   }
