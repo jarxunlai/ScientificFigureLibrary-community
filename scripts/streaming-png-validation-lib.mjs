@@ -124,9 +124,6 @@ async function* parseIdat(handle, before, parse, highWaterMark) {
     if (type === "acTL" || type === "fcTL" || type === "fdAT") {
       throw new Error("animated PNG chunks are unsupported by the streaming trust decoder");
     }
-    if (!["IHDR", "PLTE", "tRNS", "IDAT", "IEND"].includes(type)) {
-      throw new Error(`forbidden text/EXIF/ancillary/unknown PNG chunk ${type}`);
-    }
 
     const crc = new IncrementalCrc32().update(typeBytes);
     const capture = type === "IHDR" || type === "PLTE" || type === "tRNS";
@@ -195,9 +192,12 @@ async function* parseIdat(handle, before, parse, highWaterMark) {
         }
       }
       sawTrns = true;
+    } else if (type === "IDAT") {
     } else if (type === "IEND") {
       if (length !== 0 || !sawIdat || parse.totalIdatBytes === 0) throw new Error("invalid PNG IEND or missing image data");
       sawIend = true;
+    } else if ((typeBytes[0] & 0x20) === 0) {
+      throw new Error(`unsupported critical PNG chunk: ${type}`);
     }
   }
   if (stream.position !== before.bytes) throw new Error("PNG contains trailing bytes after IEND");
