@@ -10,6 +10,7 @@ import {
   validateCatalogAdditionV2, validateCatalogWithdrawalV2,
   validateFullRepositoryV2, validateZeroEntryMigrationV2,
 } from "../scripts/catalog-v2-validation-lib.mjs";
+import { inspectPngStream } from "../scripts/streaming-png-validation-lib.mjs";
 import { compareTreeMaps, V2_ADD_MODIFIED_PATHS, V2_MIGRATION_ADDED_PATHS, V2_MIGRATION_DELETED_PATHS, V2_MIGRATION_MODIFIED_PATHS } from "../scripts/validate-pr-trees.mjs";
 import { validateFullRepository } from "../scripts/catalog-validation-lib.mjs";
 import { canonicalJson, readCanonicalJsonl } from "../scripts/stream-validation-lib.mjs";
@@ -54,6 +55,30 @@ function pngChunk(type, payload) {
   for (const byte of output.subarray(4, 8 + payload.byteLength)) crc = (CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)) >>> 0;
   output.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 8 + payload.byteLength);
   return output;
+}
+
+function truecolorPngWithAncillary({ includeAnimated = false, includeUnknownCritical = false } = {}) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(2, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const bkgd = Buffer.alloc(6);
+  const phys = Buffer.from([0, 0, 11, 19, 0, 0, 11, 19, 1]);
+  const raw = Buffer.from([0, 220, 20, 60, 30, 144, 255]);
+  const chunks = [
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("bKGD", bkgd),
+    pngChunk("pHYs", phys),
+  ];
+  if (includeAnimated) chunks.push(pngChunk("acTL", Buffer.from([0, 0, 0, 1, 0, 0, 0, 0])));
+  if (includeUnknownCritical) chunks.push(pngChunk("ABCD", Buffer.from([1])));
+  chunks.push(pngChunk("IDAT", deflateSync(raw)), pngChunk("IEND", Buffer.alloc(0)));
+  const bytes = Buffer.concat(chunks);
+  const rgbaHash = createHash("sha256");
+  rgbaHash.update(Buffer.from([220, 20, 60, 255, 30, 144, 255, 255]));
+  return { bytes, width: 2, height: 1, canonicalRgbaSha256: rgbaHash.digest("hex") };
 }
 
 function largeRgbaPng(width = 8192, height = 256) {
@@ -384,6 +409,46 @@ test("streamed v2 media verification rejects PNG CRC corruption and Archive dige
       __test.verifyArchive(archives, { ...entry, archive: { ...entry.archive, sha256: "f".repeat(64) } }),
       /Archive bytes\/SHA-256 mismatch/u,
     );
+  } finally { await cleanup(temp); }
+});
+
+test("Catalog PNG decoder skips Archive ragg ancillary chunks and still rejects APNG", async () => {
+  const temp = await makeTemp("sfl-community-v2-png-ancillary-");
+  try {
+    const accepted = truecolorPngWithAncillary();
+    const acceptedPath = path.join(temp, "archive-preview.png");
+    await fs.writeFile(acceptedPath, accepted.bytes);
+    const inspected = await inspectPngStream(acceptedPath);
+    assert.equal(inspected.sha256, sha256(accepted.bytes));
+    assert.equal(inspected.width, 2);
+    assert.equal(inspected.height, 1);
+    assert.equal(inspected.canonicalRgbaSha256, accepted.canonicalRgbaSha256);
+
+    const repository = path.join(temp, "repository");
+    const archives = path.join(temp, "archives");
+    const archive = await archiveFixture(archives, "ancillary-preview");
+    const { entry } = makeEntry({ templateId: "ancillary-preview", archive });
+    entry.preview = {
+      ...entry.preview,
+      bytes: accepted.bytes.byteLength,
+      sha256: sha256(accepted.bytes),
+      width: accepted.width,
+      height: accepted.height,
+      canonicalRgbaSha256: accepted.canonicalRgbaSha256,
+    };
+    const previewPath = path.join(repository, ...entry.preview.path.split("/"));
+    await fs.mkdir(path.dirname(previewPath), { recursive: true });
+    await fs.writeFile(previewPath, accepted.bytes);
+    const preview = await __test.verifyPreview(repository, entry);
+    assert.equal(preview.sha256, entry.preview.sha256);
+
+    const animatedPath = path.join(temp, "animated.png");
+    await fs.writeFile(animatedPath, truecolorPngWithAncillary({ includeAnimated: true }).bytes);
+    await assert.rejects(inspectPngStream(animatedPath), /animated PNG chunks are unsupported/u);
+
+    const criticalPath = path.join(temp, "unknown-critical.png");
+    await fs.writeFile(criticalPath, truecolorPngWithAncillary({ includeUnknownCritical: true }).bytes);
+    await assert.rejects(inspectPngStream(criticalPath), /unsupported critical PNG chunk: ABCD/u);
   } finally { await cleanup(temp); }
 });
 

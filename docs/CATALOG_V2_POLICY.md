@@ -82,7 +82,12 @@ against an untrusted candidate. Candidate code and dependencies are never
 executed. For additions, the fixed Archives `main` observation must still
 contain the exact Git blob pinned by the immutable Archive commit, so an
 Archive path that was later deleted or replaced cannot enter the Catalog.
-Policy changes are
+Catalog thumbnails are the exact Archive `payload/preview/preview.png`
+bytes. Trusted PNG inspection therefore follows the SFL 0.7.3 / Archive
+RGBA decoder: CRC-checked ancillary chunks such as `bKGD` and `pHYs` are
+skipped, animated PNG (`acTL`/`fcTL`/`fdAT`) and unknown critical chunks
+remain forbidden, and identity is still the file SHA-256 plus canonical
+RGBA digest. Policy changes are
 separate maintainer PRs and are expected to be rejected by the pre-bootstrap
 content tree policy until a human reviews and manually merges the bootstrap.
 
